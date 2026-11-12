@@ -178,7 +178,22 @@ public static class PyJson
 
     /// <summary>A file's text as Python's open(encoding="utf-8") read it: invalid UTF-8 is an error, and a byte
     /// order mark is kept (so json.loads refuses it).</summary>
-    public static string ReadStrict(string path) => new UTF8Encoding(false, true).GetString(File.ReadAllBytes(path));
+    public static string ReadStrict(string path) => DecodeStrict(ReadBytes(path));
+
+    /// <summary>Bytes as ReadStrict decodes them.</summary>
+    public static string DecodeStrict(byte[] bytes) => new UTF8Encoding(false, true).GetString(bytes);
+
+    /// <summary>A file's bytes, read without getting in anyone's way: others may write or delete it while it's
+    /// open. File.ReadAllBytes shares read only, so the watcher reading a lease at the moment the hook deleted it
+    /// made the delete fail, and a finished turn's lease lived on. (Replacing a file needs every handle on it
+    /// closed, whatever they share, so the hook retries a replace instead.)</summary>
+    public static byte[] ReadBytes(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var buffer = new MemoryStream();
+        file.CopyTo(buffer);
+        return buffer.ToArray();
+    }
 
     private static void Quote(StringBuilder b, string text, bool ascii)
     {

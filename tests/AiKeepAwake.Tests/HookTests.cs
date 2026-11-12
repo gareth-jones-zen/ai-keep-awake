@@ -30,6 +30,55 @@ public class HookTests : Temp
     private double Until() => LeaseFile()!["until"]!.GetValue<double>();
 
     [Fact]
+    public void A_lease_being_read_can_still_be_cleared()
+    {
+        RunHook("busy");
+        var path = Path.Combine(LeasesDir, "s1.json");
+        // The watcher reads leases sharing write and delete, so the hook's delete goes through while it reads.
+        // (Replacing a file needs it closed whoever shares what, so a replace is retried: the tests below.)
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            Assert.Equal("cleared", RunHook("stop", now: Now + 10));
+        Assert.Null(LeaseFile());
+        RunHook("busy");
+        Assert.Single(Leases.Read(LeasesDir));   // and the watcher's read itself works
+    }
+
+    [Fact]
+    public void A_lease_held_for_a_moment_is_cleared_on_the_retry()
+    {
+        RunHook("busy");
+        var path = Path.Combine(LeasesDir, "s1.json");
+        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);   // as File.ReadAllBytes holds it
+        var release = new Thread(() =>
+        {
+            Thread.Sleep(10);
+            held.Dispose();
+        });
+        release.Start();
+        Assert.Equal("cleared", RunHook("stop", now: Now + 10));
+        release.Join();
+        Assert.Null(LeaseFile());
+    }
+
+    [Fact]
+    public void A_lease_held_for_a_moment_is_replaced_on_the_retry()
+    {
+        RunHook("busy");
+        var path = Path.Combine(LeasesDir, "s1.json");
+        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var release = new Thread(() =>
+        {
+            Thread.Sleep(10);
+            held.Dispose();
+        });
+        release.Start();
+        Assert.Equal("wrote", RunHook("busy", now: Now + 120));
+        release.Join();
+        Assert.Equal(Now + 120 + Hook.Lease, Until());
+        Assert.Empty(Directory.GetFiles(LeasesDir, "*.tmp"));
+    }
+
+    [Fact]
     public void Busy_writes_a_fifteen_minute_lease()
     {
         Assert.Equal("wrote", RunHook("busy"));

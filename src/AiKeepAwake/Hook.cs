@@ -131,7 +131,7 @@ public static class Hook
                 return "skipped";
             try
             {
-                File.Delete(path);
+                TwiceIfBusy(() => File.Delete(path));
                 return "cleared";
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
@@ -157,8 +157,35 @@ public static class Hook
         Directory.CreateDirectory(folder);
         var temp = $"{path}.{Environment.ProcessId}.tmp";
         File.WriteAllText(temp, PyJson.Dump(record), new UTF8Encoding(false));
-        File.Move(temp, path, overwrite: true);
+        try
+        {
+            TwiceIfBusy(() => File.Move(temp, path, overwrite: true));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            try { File.Delete(temp); } catch (Exception again) when (again is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
         return "wrote";
+    }
+
+    /// <summary>How long the hook waits before its one retry of a replace or delete that something had open.</summary>
+    private static readonly TimeSpan RetryPause = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>Do it, and if the file was busy (another reader that didn't share delete, a scanner), once more
+    /// after a moment. A lease that couldn't be cleared would keep the laptop awake for up to 45 minutes after
+    /// the turn ended; one short wait on that rare path is worth it.</summary>
+    private static void TwiceIfBusy(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Thread.Sleep(RetryPause);
+            action();
+        }
     }
 
     private static JsonObject ReadOld(string path)
