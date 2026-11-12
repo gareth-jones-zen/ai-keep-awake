@@ -80,6 +80,14 @@ public sealed class ScheduledTask(string name, string description = "", IReadOnl
         return $"{exe} {Shell.ListToCommandLine(args)}";
     }
 
+    /// <summary>PowerShell: the processes still running the task, found by its arguments ($taskArgs) in their
+    /// command lines. Never this script's own powershell.exe ($PID): Enable's script contains the arguments
+    /// literally, so without that it always found itself and waited the full 30 seconds. Not narrowed further by
+    /// the program's path either: a launcher (a venv's python, py.exe) can run the real process from another
+    /// exe, and missing a live watcher brings back the race below, while a false match only costs a wait.</summary>
+    public const string AliveFilter =
+        "Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($taskArgs) }";
+
     /// <summary>PowerShell: stop the task, then wait (up to 30 seconds) until its process has actually gone.
     ///
     /// Stop-ScheduledTask returns before the process exits. Starting again at once lost the race on 11 Nov 2026:
@@ -93,7 +101,7 @@ public sealed class ScheduledTask(string name, string description = "", IReadOnl
           Stop-ScheduledTask {{Which}}
           $deadline = (Get-Date).AddSeconds(30)
           while ($taskArgs -and (Get-Date) -lt $deadline) {
-            $alive = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($taskArgs) }
+            $alive = {{AliveFilter}}
             if (-not $alive) { break }
             Start-Sleep -Milliseconds 500
           }
