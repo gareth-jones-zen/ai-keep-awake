@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>ai-keep-awake-background</AssemblyName>
+    <RootNamespace>AiKeepAwake</RootNamespace>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AiKeepAwake\AiKeepAwake.csproj" />
+  </ItemGroup>
+</Project>

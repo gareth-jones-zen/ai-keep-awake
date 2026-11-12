@@ -1,0 +1,18 @@
+<Project>
+  <!-- Shared by every project. The exes are published with Native AOT, so everything is AOT- and trim-checked. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.0.0-dev</Version>
+    <Authors>Gareth Jones</Authors>
+    <RepositoryUrl>https://github.com/gareth-jones-zen/ai-keep-awake</RepositoryUrl>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(IsTestProject)' != 'true'">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

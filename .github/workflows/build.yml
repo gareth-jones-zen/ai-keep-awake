@@ -1,0 +1,27 @@
+name: build
+
+on:
+  push:
+    branches: [dotnet, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Build and test
+        run: dotnet test -c Release
+      - name: Publish (Native AOT)
+        run: |
+          dotnet publish src/AiKeepAwake.Console -c Release -r win-x64 -o out
+          dotnet publish src/AiKeepAwake.Background -c Release -r win-x64 -o out
+          Get-ChildItem out/*.exe | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-keep-awake-win-x64
+          path: out/*.exe

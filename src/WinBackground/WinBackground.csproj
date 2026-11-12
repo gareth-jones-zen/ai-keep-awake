@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Running a tool quietly in the background on Windows: power requests, Task Scheduler, locks, the log, toasts. -->
+</Project>
