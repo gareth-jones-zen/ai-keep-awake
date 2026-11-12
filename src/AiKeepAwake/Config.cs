@@ -59,6 +59,7 @@ public sealed class Config
     public Config(string path, Func<string, string?>? env = null)
     {
         env ??= Environment;
+        Env = env;
         Path = path;
         var local = LocalFolder(env);
         LeasesDir = PyPath.Pure(System.IO.Path.Combine(local, "leases"));
@@ -69,6 +70,9 @@ public sealed class Config
     }
 
     public string Path { get; }
+
+    /// <summary>The environment the defaults came from (the real one, or a test's).</summary>
+    public Func<string, string?> Env { get; }
     public string Reason { get; set; } = DefaultReason;
     public double LeaseMinutes { get; set; } = 15;
     public double BackgroundLeaseMinutes { get; set; } = 45;
