@@ -264,8 +264,9 @@ public class CliTests : Temp
     public void Status_sees_a_running_watcher_without_taking_its_lock()
     {
         var name = Watcher.LockName(Config.Load(configPath, Env));
-        using (new LockHolder(name))
+        using (var watcher = WinBackground.Locks.SingleInstance(name))   // as a running watcher holds it
         {
+            Assert.NotNull(watcher);
             Assert.Equal(0, Run("status"));
             Assert.Contains("Watcher:    running;", output.ToString());
             Assert.True(WinBackground.Locks.Held(name));
