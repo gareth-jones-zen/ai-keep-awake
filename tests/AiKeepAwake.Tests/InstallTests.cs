@@ -151,6 +151,81 @@ public class InstallTests : Temp
     }
 
     [Fact]
+    public void A_write_by_something_else_meanwhile_is_kept()
+    {
+        var writes = 0;
+        void Meanwhile()
+        {
+            if (writes++ == 0)   // Claude Code writes the file once, between our read and our replace
+                File.WriteAllText(settings, "{\"model\": \"sonnet\", \"theme\": \"light\"}\n");
+        }
+        var report = Install.Change(settings, s => Install.WithOurs(s, config), beforeReplace: Meanwhile);
+        Assert.True(report.Changed);
+        var data = ReadBack();
+        Assert.Equal("sonnet", data["model"]!.GetValue<string>());   // their write survived
+        Assert.Equal(7, Install.Installed(settings).Count);           // and ours went in on top of it
+        Assert.Single(Backups());                                      // the backup of the first read was dropped
+        Assert.Contains("sonnet", File.ReadAllText(report.Backup!));
+        Assert.Empty(Directory.GetFiles(Folder, "*.tmp"));
+    }
+
+    [Fact]
+    public void A_file_that_keeps_changing_is_left_alone()
+    {
+        var n = 0;
+        void Meanwhile() => File.WriteAllText(settings, $"{{\"n\": {n++}}}\n");
+        var error = Assert.Throws<SettingsError>(() => Install.Change(settings, s => Install.WithOurs(s, config), beforeReplace: Meanwhile));
+        Assert.Contains("kept changing", error.Message);
+        Assert.Equal(Install.Tries, n);
+        Assert.Equal($"{{\"n\": {n - 1}}}\n", File.ReadAllText(settings));   // the other writer's last version
+        Assert.Empty(Backups());
+        Assert.Empty(Directory.GetFiles(Folder, "*.tmp"));
+    }
+
+    [Fact]
+    public void Backups_in_the_same_second_never_overwrite_each_other()
+    {
+        var pristine = File.ReadAllBytes(settings);
+        DateTime Clock() => new(2026, 11, 12, 23, 0, 0);
+        var first = Install.Change(settings, s => Install.WithOurs(s, config), clock: Clock).Backup!;
+        var second = Install.Change(settings, s => Install.WithoutOurs(s).Settings, clock: Clock).Backup!;
+        Assert.NotEqual(first, second);
+        Assert.EndsWith(".ai-keep-awake-20261112-230000.bak", first);
+        Assert.EndsWith(".ai-keep-awake-20261112-230000-2.bak", second);
+        Assert.Equal(pristine, File.ReadAllBytes(first));
+        Assert.Equal(2, Backups().Length);
+    }
+
+    [Fact]
+    public void Uninstall_with_no_settings_file_creates_none()
+    {
+        File.Delete(settings);
+        Assert.False(DoUninstall().Changed);
+        Assert.False(File.Exists(settings));
+    }
+
+    [Fact]
+    public void A_symbolic_link_is_written_through()
+    {
+        var real = Path.Combine(Folder, "dotfiles", "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(real)!);
+        File.Move(settings, real);
+        try
+        {
+            File.CreateSymbolicLink(settings, real);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Assert.Skip($"Symbolic links can't be made here (Developer Mode or admin needed): {error.Message}");
+        }
+        var report = DoInstall();
+        Assert.NotNull(new FileInfo(settings).LinkTarget);                 // still a link
+        Assert.Equal(7, Install.Installed(real).Count);                    // and the file it points at has the hooks
+        Assert.Equal(Path.GetDirectoryName(settings), Path.GetDirectoryName(report.Backup));   // backup beside the link
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(real)!, "*.tmp"));
+    }
+
+    [Fact]
     public void A_non_object_is_refused()
     {
         File.WriteAllText(settings, "[]");

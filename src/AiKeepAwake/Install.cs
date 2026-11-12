@@ -166,14 +166,19 @@ public static class Install
 
     /// <summary>(settings, original text). A missing file is an empty one; a file that isn't a JSON object is
     /// refused. The text is read as Python read it: a byte order mark dropped, line endings made "\n".</summary>
-    public static (JsonObject Settings, string Text) Read(string path)
+    public static (JsonObject Settings, string Text) Read(string path) => Read(path, ReadBytes(path));
+
+    /// <summary>The file's bytes, or null if there isn't one.</summary>
+    private static byte[]? ReadBytes(string path) => File.Exists(path) ? PyJson.ReadBytes(path) : null;
+
+    private static (JsonObject Settings, string Text) Read(string path, byte[]? bytes)
     {
-        if (!File.Exists(path))
+        if (bytes is null)
             return ([], "");
         string text;
         try
         {
-            text = PyJson.ReadStrict(path);
+            text = PyJson.DecodeStrict(bytes);
         }
         catch (DecoderFallbackException error)
         {
@@ -204,31 +209,88 @@ public static class Install
     public static string Diff(string path, string before, string after) =>
         UnifiedDiff.Of(Py.SplitLinesKeepEnds(before), Py.SplitLinesKeepEnds(after), $"{path} (now)", $"{path} (after)");
 
+    /// <summary>How many times Change reads, changes and writes before giving up on a file that keeps changing.</summary>
+    public const int Tries = 3;
+
     /// <summary>Apply transform(settings) to the file. A backup is made first, named
-    /// settings.json.ai-keep-awake-yyyyMMdd-HHmmss.bak.</summary>
-    public static ChangeReport Change(string path, Func<JsonObject, JsonObject> transform, bool dryRun = false, Func<DateTime>? clock = null)
+    /// settings.json.ai-keep-awake-yyyyMMdd-HHmmss.bak (with -2, -3 and so on if that name is taken, so an
+    /// install and uninstall in the same second keep both).
+    ///
+    /// Claude Code (or a status line tool) may write the file at any moment, and replacing it with what was read
+    /// a moment earlier would lose that write. So the file is read again just before it's replaced, and if it
+    /// changed, the whole change is made again on the new contents (up to Tries times). A symbolic link (a
+    /// dotfiles setup) is written through, to the file it points at, rather than replaced by a plain file. A
+    /// missing file that the change would leave empty isn't created. beforeReplace is for tests.</summary>
+    public static ChangeReport Change(string path, Func<JsonObject, JsonObject> transform, bool dryRun = false, Func<DateTime>? clock = null,
+        Action? beforeReplace = null)
     {
-        var (settings, before) = Read(path);
-        var afterSettings = transform(settings);
-        if (PyJson.Equal(afterSettings, settings) && before.Length > 0)
-            return new ChangeReport(false, "", null);
-        var after = Render(afterSettings);
-        var diff = Diff(path, before, after);
-        if (dryRun)
-            return new ChangeReport(true, diff, null);
-        var folder = Path.GetDirectoryName(Path.GetFullPath(path))!;
-        Directory.CreateDirectory(folder);
-        var name = Path.GetFileName(path);
-        string? backup = null;
-        if (File.Exists(path))
+        var target = LinkTarget(path);
+        for (var attempt = 1; ; attempt++)
         {
-            backup = Path.Combine(folder, $"{name}.ai-keep-awake-{(clock ?? (() => DateTime.Now))():yyyyMMdd-HHmmss}.bak");
-            File.WriteAllBytes(backup, File.ReadAllBytes(path));
+            var original = ReadBytes(target);
+            var (settings, before) = Read(path, original);
+            var afterSettings = transform(settings);
+            if (PyJson.Equal(afterSettings, settings) && (original is null || before.Length > 0))
+                return new ChangeReport(false, "", null);
+            var after = Render(afterSettings);
+            var diff = Diff(path, before, after);
+            if (dryRun)
+                return new ChangeReport(true, diff, null);
+            var folder = Path.GetDirectoryName(Path.GetFullPath(target))!;
+            Directory.CreateDirectory(folder);
+            var backup = original is null ? null : Backup(path, original, clock ?? (() => DateTime.Now));
+            var temp = Path.Combine(folder, $"{Path.GetFileName(target)}.ai-keep-awake.tmp");
+            File.WriteAllText(temp, after.Replace("\n", "\r\n"), new UTF8Encoding(false));   // as Python's text mode wrote it on Windows
+            beforeReplace?.Invoke();
+            if (Same(ReadBytes(target), original))
+            {
+                File.Move(temp, target, overwrite: true);
+                return new ChangeReport(true, diff, backup);
+            }
+            // Changed under us: this backup and this version are of contents that are already gone.
+            File.Delete(temp);
+            if (backup is not null)
+                File.Delete(backup);
+            if (attempt >= Tries)
+                throw new SettingsError($"{path} kept changing while it was being edited (Claude Code or another tool writing it). "
+                                        + "Nothing was changed; try again.");
         }
-        var temp = Path.Combine(folder, $"{name}.ai-keep-awake.tmp");
-        File.WriteAllText(temp, after.Replace("\n", "\r\n"), new UTF8Encoding(false));   // as Python's text mode wrote it on Windows
-        File.Move(temp, path, overwrite: true);
-        return new ChangeReport(true, diff, backup);
+    }
+
+    /// <summary>The file a path really names: what it links to, if it's a symbolic link, else the path itself.</summary>
+    public static string LinkTarget(string path)
+    {
+        try
+        {
+            return new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? path;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return path;
+        }
+    }
+
+    private static bool Same(byte[]? a, byte[]? b) => a is null ? b is null : b is not null && a.AsSpan().SequenceEqual(b);
+
+    /// <summary>Write a backup beside path, never over an earlier one.</summary>
+    private static string Backup(string path, byte[] bytes, Func<DateTime> clock)
+    {
+        var folder = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        var stem = Path.Combine(folder, $"{Path.GetFileName(path)}.ai-keep-awake-{clock():yyyyMMdd-HHmmss}");
+        for (var n = 1; ; n++)
+        {
+            var name = n == 1 ? $"{stem}.bak" : $"{stem}-{n}.bak";
+            try
+            {
+                using var file = new FileStream(name, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                file.Write(bytes);
+                return name;
+            }
+            catch (IOException) when (File.Exists(name))
+            {
+                // taken: try the next suffix
+            }
+        }
     }
 
     /// <summary>The events that have this tool's hook (old: the Python tool's), from the settings file.</summary>
