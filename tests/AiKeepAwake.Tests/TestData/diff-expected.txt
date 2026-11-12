@@ -1,0 +1,90 @@
+--- s (now)
++++ s (after)
+@@ -103,7 +103,7 @@
+       ]
+     },
+     "K7": {
+-      "v": 7,
++      "v": 70,
+       "w": [
+         7,
+         8
+@@ -135,13 +135,6 @@
+       "w": [
+         11,
+         12
+-      ]
+-    },
+-    "K12": {
+-      "v": 12,
+-      "w": [
+-        12,
+-        13
+       ]
+     },
+     "K13": {
+@@ -272,6 +265,64 @@
+           {
+             "type": "command",
+             "command": "lint.sh"
++          }
++        ]
++      },
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "x.exe",
++            "args": [
++              "hook",
++              "busy"
++            ],
++            "timeout": 5
++          }
++        ]
++      }
++    ],
++    "UserPromptSubmit": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "x.exe",
++            "args": [
++              "hook",
++              "busy"
++            ],
++            "timeout": 5
++          }
++        ]
++      }
++    ],
++    "Stop": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "x.exe",
++            "args": [
++              "hook",
++              "busy"
++            ],
++            "timeout": 5
++          }
++        ]
++      }
++    ],
++    "SessionEnd": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "x.exe",
++            "args": [
++              "hook",
++              "busy"
++            ],
++            "timeout": 5
+           }
+         ]
+       }

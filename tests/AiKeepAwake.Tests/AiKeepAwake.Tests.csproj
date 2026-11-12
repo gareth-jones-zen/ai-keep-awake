@@ -8,8 +8,21 @@
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
+    <None Include="TestData\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\AiKeepAwake\AiKeepAwake.csproj" />
+    <!-- Built first, so the hook tests can run the real background program as Claude Code does. -->
+    <ProjectReference Include="..\..\src\AiKeepAwake.Background\AiKeepAwake.Background.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BackgroundExe</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)..\..\src\AiKeepAwake.Background\bin\$(Configuration)\$(TargetFramework)\ai-keep-awake-background.exe</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PublishedBackgroundExe</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)..\..\out\ai-keep-awake-background.exe</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>
