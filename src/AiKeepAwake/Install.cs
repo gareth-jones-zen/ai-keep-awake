@@ -29,6 +29,9 @@ public static class Install
     /// <summary>What marks a hook as ours: this tool, and the Python claude-keep-awake it replaces.</summary>
     public static readonly string[] Marks = ["ai-keep-awake", "ai_keep_awake", "claude_keep_awake", "claude-keep-awake"];
 
+    /// <summary>What marks a hook as the old Python tool's only.</summary>
+    public static readonly string[] OldMarks = ["claude_keep_awake", "claude-keep-awake"];
+
     /// <summary>(event, matcher, action).</summary>
     public static readonly (string Event, string? Matcher, string Action)[] Events =
     [
@@ -64,7 +67,12 @@ public static class Install
         };
     }
 
-    public static bool IsOurs(JsonNode? item)
+    /// <summary>Whether a hook handler is this tool's (old: the Python tool's instead).</summary>
+    public static bool IsOurs(JsonNode? item) => Names(item, Marks);
+
+    public static bool IsOld(JsonNode? item) => Names(item, OldMarks) && !Names(item, ["ai-keep-awake", "ai_keep_awake"]);
+
+    private static bool Names(JsonNode? item, string[] marks)
     {
         if (item is not JsonObject handler)
             return false;
@@ -77,7 +85,7 @@ public static class Install
             else if (args is JsonObject keys)
                 texts.AddRange(keys.Select(pair => pair.Key));
         }
-        return texts.Any(text => Marks.Any(mark => text.Contains(mark, StringComparison.OrdinalIgnoreCase)));
+        return texts.Any(text => marks.Any(mark => text.Contains(mark, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>A copy with this tool's hook entries removed, and how many there were. Empty groups and events
@@ -220,9 +228,10 @@ public static class Install
         return new ChangeReport(true, diff, backup);
     }
 
-    /// <summary>The events that have this tool's hook, from the settings file.</summary>
-    public static List<string> Installed(string path)
+    /// <summary>The events that have this tool's hook (old: the Python tool's), from the settings file.</summary>
+    public static List<string> Installed(string path, bool old = false)
     {
+        Func<JsonNode?, bool> match = old ? IsOld : item => IsOurs(item) && !IsOld(item);
         JsonObject settings;
         try
         {
@@ -235,7 +244,7 @@ public static class Install
         if (settings["hooks"] is not JsonObject hooks)
             return [];
         return hooks.Where(pair => pair.Value is JsonArray groups && groups.Any(g =>
-                g is JsonObject group && group["hooks"] is JsonArray handlers && handlers.Any(IsOurs)))
+                g is JsonObject group && group["hooks"] is JsonArray handlers && handlers.Any(match)))
             .Select(pair => pair.Key).ToList();
     }
 }
