@@ -137,6 +137,20 @@ public class InstallTests : Temp
     }
 
     [Fact]
+    public void A_lone_surrogate_is_refused_cleanly()
+    {
+        const string text = "{\"model\": \"\\ud800\"}";
+        File.WriteAllText(settings, text);
+        var error = Assert.Throws<SettingsError>(() => DoInstall());
+        Assert.Contains("isn't valid JSON", error.Message);
+        Assert.Throws<SettingsError>(() => DoUninstall());
+        Assert.Empty(Install.Installed(settings));
+        Assert.Equal(text, File.ReadAllText(settings));
+        Assert.Empty(Backups());
+        Assert.Throws<System.Text.Json.JsonException>(() => PyJson.Parse(@"{""\udc00"": 1}"));   // in a key too
+    }
+
+    [Fact]
     public void A_non_object_is_refused()
     {
         File.WriteAllText(settings, "[]");

@@ -14,13 +14,21 @@ public static class PyJson
     private static readonly JsonDocumentOptions Options = new() { MaxDepth = 512 };
 
     /// <summary>json.loads: a duplicate key keeps its first position and takes the last value, as a Python dict
-    /// does. Throws JsonException for anything that isn't JSON.</summary>
+    /// does. Throws JsonException for anything that isn't JSON, including a string holding a lone surrogate
+    /// ("\ud800"), which JsonElement.GetString() refuses with InvalidOperationException instead.</summary>
     public static JsonNode? Parse(string text)
     {
         if (text.Length > 0 && text[0] == '\ufeff')
             throw new JsonException("Unexpected UTF-8 BOM (decode using utf-8-sig)");
         using var document = JsonDocument.Parse(text, Options);
-        return Build(document.RootElement);
+        try
+        {
+            return Build(document.RootElement);
+        }
+        catch (InvalidOperationException error)
+        {
+            throw new JsonException(error.Message, error);
+        }
     }
 
     private static JsonNode? Build(JsonElement element)
