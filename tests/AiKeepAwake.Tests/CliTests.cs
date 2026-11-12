@@ -38,6 +38,7 @@ public class CliTests : Temp
             Notify = (_, _) => { },
             ProgramDir = programDir ?? dist,
             Clock = () => Now,
+            CopyPause = TimeSpan.Zero,
             Stdin = () => new MemoryStream("{\"session_id\": \"s1\"}"u8.ToArray()),
         };
         return Cli.Run(["--config", configPath, .. args], host);
@@ -105,6 +106,72 @@ public class CliTests : Temp
         Assert.Contains("Would remove the old task 'claude-keep-awake watch'", text);
         Assert.Empty(tasks.Calls);
         Assert.False(Directory.Exists(installDir));
+    }
+
+    private void OldInstall()
+    {
+        Directory.CreateDirectory(installDir);
+        foreach (var name in Programs.Names)
+            File.WriteAllText(Path.Combine(installDir, name), "old");
+        tasks[AutoStart.TaskName].Exists = true;
+    }
+
+    [Fact]
+    public void A_failed_copy_starts_the_stopped_watcher_again()
+    {
+        OldInstall();
+        using (new FileStream(Path.Combine(installDir, Install.BackgroundExe), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.Equal(1, Run("install", "--settings", settings));
+        Assert.Equal(["stop ai-keep-awake watch", "start ai-keep-awake watch"], tasks.Calls);
+        Assert.Contains("The programs couldn't be copied", error.ToString());
+        Assert.Contains("The watcher was started again", error.ToString());
+        Assert.DoesNotContain("autostart off", error.ToString());   // the old, misleading advice
+        Assert.Equal("{\"model\": \"opus\"}\n", File.ReadAllText(settings));
+        foreach (var name in Programs.Names)
+            Assert.Equal("old", File.ReadAllText(Path.Combine(installDir, name)));   // not half old, half new
+    }
+
+    [Fact]
+    public void A_failed_settings_write_starts_the_stopped_watcher_again()
+    {
+        OldInstall();
+        // Readable, so the first check passes, but it can't be replaced.
+        using (new FileStream(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.Equal(2, Run("install", "--settings", settings));
+        Assert.Equal(["stop ai-keep-awake watch", "start ai-keep-awake watch"], tasks.Calls);
+        Assert.Contains("The watcher was started again", error.ToString());
+    }
+
+    [Fact]
+    public void A_failed_task_registration_starts_the_stopped_watcher_again()
+    {
+        OldInstall();
+        tasks[AutoStart.TaskName].FailOn.Add("enable");
+        Assert.Equal(1, Run("install", "--settings", settings));
+        Assert.Equal(["stop ai-keep-awake watch", "disable claude-keep-awake watch", "enable ai-keep-awake watch", "start ai-keep-awake watch"],
+            tasks.Calls);
+        Assert.Contains("couldn't be registered", error.ToString());
+    }
+
+    [Fact]
+    public void A_watcher_that_cannot_be_restarted_is_reported_not_thrown()
+    {
+        OldInstall();
+        tasks[AutoStart.TaskName].FailOn.UnionWith(["enable", "start"]);
+        Assert.Equal(1, Run("install", "--settings", settings));
+        Assert.Contains("The watcher couldn't be started again", error.ToString());
+        Assert.Contains("ai-keep-awake autostart on", error.ToString());
+    }
+
+    [Fact]
+    public void A_watcher_that_cannot_be_stopped_changes_nothing()
+    {
+        OldInstall();
+        tasks[AutoStart.TaskName].FailOn.Add("stop");
+        Assert.Equal(1, Run("install", "--settings", settings));
+        Assert.Equal(["stop ai-keep-awake watch", "start ai-keep-awake watch"], tasks.Calls);   // in case it stopped part way
+        Assert.Contains("couldn't be stopped", error.ToString());
+        Assert.Equal("old", File.ReadAllText(Path.Combine(installDir, Install.BackgroundExe)));
     }
 
     [Fact]

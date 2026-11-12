@@ -20,6 +20,9 @@ public sealed class CliHost
     /// <summary>The folder the running program is in, which install copies from.</summary>
     public string ProgramDir { get; init; } = AppContext.BaseDirectory;
 
+    /// <summary>How long install waits between tries at replacing a program that's in use.</summary>
+    public TimeSpan CopyPause { get; init; } = TimeSpan.FromMilliseconds(300);
+
     public Func<Stream>? Stdin { get; init; }
     public Func<double> Clock { get; init; } = Hook.Now;
 }

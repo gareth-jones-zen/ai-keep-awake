@@ -100,18 +100,29 @@ public sealed class FakeTask(string name, FakeTasks all) : ITask
 {
     public string Name { get; } = name;
     public bool Exists { get; set; }
+
+    /// <summary>The calls ("enable", "disable", "stop", "start", "status") that throw, as a failing PowerShell would.</summary>
+    public HashSet<string> FailOn { get; } = [];
+
+    private void Call(string what)
+    {
+        all.Calls.Add($"{what} {Name}");
+        if (FailOn.Contains(what))
+            throw new InvalidOperationException($"Couldn't {what} the task: PowerShell said no");
+    }
+
     public (string Exe, IReadOnlyList<string> Args, string? WorkingDir)? Enabled { get; private set; }
 
     public string Enable(string exe, IReadOnlyList<string> args, string? workingDir)
     {
-        all.Calls.Add($"enable {Name}");
+        Call("enable");
         (Exists, Enabled) = (true, (exe, args, workingDir));
         return $"{exe} {Shell.ListToCommandLine(args)}";
     }
 
     public bool Disable()
     {
-        all.Calls.Add($"disable {Name}");
+        Call("disable");
         var was = Exists;
         Exists = false;
         return was;
@@ -119,12 +130,22 @@ public sealed class FakeTask(string name, FakeTasks all) : ITask
 
     public bool Stop()
     {
-        all.Calls.Add($"stop {Name}");
+        Call("stop");
         return Exists;
     }
 
-    public IReadOnlyDictionary<string, string>? Status() =>
-        Exists ? new Dictionary<string, string> { ["state"] = "Running", ["last_run"] = "today", ["last_result"] = "running" } : null;
+    public bool Start()
+    {
+        Call("start");
+        return Exists;
+    }
+
+    public IReadOnlyDictionary<string, string>? Status()
+    {
+        if (FailOn.Contains("status"))
+            throw new InvalidOperationException("Couldn't read the task: PowerShell said no");
+        return Exists ? new Dictionary<string, string> { ["state"] = "Running", ["last_run"] = "today", ["last_result"] = "running" } : null;
+    }
 }
 
 public sealed class FakeTasks

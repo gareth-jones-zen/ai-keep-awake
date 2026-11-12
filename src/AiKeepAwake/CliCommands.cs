@@ -43,60 +43,106 @@ public static partial class Cli
             return 0;
         }
 
-        if (copy)
-        {
-            try
-            {
-                if (!options.NoAutostart)
-                    host.Tasks(AutoStart.TaskName).Stop();   // the running watcher's exe can't be replaced
-                Programs.Copy(host.ProgramDir, config.InstallDir);
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException)
-            {
-                Print(host.Err, $"The programs couldn't be copied to {config.InstallDir}: {error.Message}");
-                Print(host.Err, "If a watcher is still running from there, stop it (ai-keep-awake autostart off) and try again.");
-                return 1;
-            }
-            Print(host.Out, $"Copied {string.Join(" and ", Programs.Names)} to {config.InstallDir}.");
-        }
-
+        // Install stops the watcher before replacing its program. Whatever happens after that, it must not be
+        // left stopped: if install doesn't get as far as registering (and so starting) the task, it's started
+        // again as it was. Otherwise a failed copy or settings write left no watcher until the next logon.
+        var task = host.Tasks(AutoStart.TaskName);
+        var stopped = false;
+        var enabled = false;
         try
         {
-            report = Install.Change(path, s => Install.WithOurs(s, config, hookExe));
-        }
-        catch (Exception error) when (error is SettingsError or IOException or UnauthorizedAccessException)
-        {
-            Print(host.Err, error.Message);
-            return 2;
-        }
-        if (report.Changed)
-        {
-            Print(host.Out, $"Hooks added to {path} ({Install.Events.Length} events)."
-                            + (report.Backup is not null ? $" Backup: {report.Backup}" : ""));
-            Print(host.Out, "Claude Code sessions already open pick the hooks up when they next read their settings; "
-                            + "a new session certainly will.");
-        }
-        else
-            Print(host.Out, $"The hooks were already in {path}; no change.");
+            if (copy)
+            {
+                if (!options.NoAutostart)
+                {
+                    try
+                    {
+                        stopped = true;   // if stopping fails part way, it may still have stopped: start it again to be sure
+                        stopped = task.Stop();
+                    }
+                    catch (Exception error) when (IsTaskError(error))
+                    {
+                        Print(host.Err, $"The watcher couldn't be stopped, so the programs weren't replaced: {error.Message}");
+                        return 1;
+                    }
+                }
+                try
+                {
+                    Programs.Copy(host.ProgramDir, config.InstallDir, pause: host.CopyPause);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    Print(host.Err, $"The programs couldn't be copied to {config.InstallDir}: {error.Message}");
+                    Print(host.Err, "The programs there were left as they were, and nothing else was changed. "
+                                    + "Something may be scanning or holding them; try again in a minute.");
+                    return 1;
+                }
+                Print(host.Out, $"Copied {string.Join(" and ", Programs.Names)} to {config.InstallDir}.");
+            }
 
-        if (!options.NoAutostart)
-        {
             try
             {
-                if (host.Tasks(AutoStart.OldTaskName).Disable())
-                    Print(host.Out, $"The old task '{AutoStart.OldTaskName}' is removed (and its watcher stopped).");
-                Directory.CreateDirectory(Path.GetDirectoryName(config.Path)!);
-                var command = host.Tasks(AutoStart.TaskName).Enable(exe, taskArgs, Path.GetDirectoryName(config.Path));
-                Print(host.Out, $"The watcher runs at every logon ('{AutoStart.TaskName}'), and has started now.\n  {command}");
+                report = Install.Change(path, s => Install.WithOurs(s, config, hookExe));
             }
-            catch (Exception error) when (error is InvalidOperationException or TimeoutException or IOException
-                                              or System.ComponentModel.Win32Exception)
+            catch (Exception error) when (error is SettingsError or IOException or UnauthorizedAccessException)
             {
-                Print(host.Err, $"The watcher's task couldn't be registered: {error.Message}");
-                return 1;
+                Print(host.Err, error.Message);
+                return 2;
             }
+            if (report.Changed)
+            {
+                Print(host.Out, $"Hooks added to {path} ({Install.Events.Length} events)."
+                                + (report.Backup is not null ? $" Backup: {report.Backup}" : ""));
+                Print(host.Out, "Claude Code sessions already open pick the hooks up when they next read their settings; "
+                                + "a new session certainly will.");
+            }
+            else
+                Print(host.Out, $"The hooks were already in {path}; no change.");
+
+            if (!options.NoAutostart)
+            {
+                try
+                {
+                    if (host.Tasks(AutoStart.OldTaskName).Disable())
+                        Print(host.Out, $"The old task '{AutoStart.OldTaskName}' is removed (and its watcher stopped).");
+                    Directory.CreateDirectory(Path.GetDirectoryName(config.Path)!);
+                    var command = task.Enable(exe, taskArgs, Path.GetDirectoryName(config.Path));
+                    enabled = true;
+                    Print(host.Out, $"The watcher runs at every logon ('{AutoStart.TaskName}'), and has started now.\n  {command}");
+                }
+                catch (Exception error) when (IsTaskError(error))
+                {
+                    Print(host.Err, $"The watcher's task couldn't be registered: {error.Message}");
+                    return 1;
+                }
+            }
+            return 0;
         }
-        return 0;
+        finally
+        {
+            if (stopped && !enabled)
+                StartAgain(task, host);
+        }
+    }
+
+    /// <summary>What a Task Scheduler call can throw: PowerShell failing (InvalidOperationException), timing out,
+    /// or not starting at all.</summary>
+    private static bool IsTaskError(Exception error) =>
+        error is InvalidOperationException or TimeoutException or IOException or System.ComponentModel.Win32Exception;
+
+    /// <summary>Start the watcher's task again after install stopped it and then failed. Never throws.</summary>
+    private static void StartAgain(WinBackground.ITask task, CliHost host)
+    {
+        try
+        {
+            if (task.Start())
+                Print(host.Err, "The watcher was started again, as it was.");
+        }
+        catch (Exception error) when (IsTaskError(error))
+        {
+            Print(host.Err, $"The watcher couldn't be started again ({error.Message}). It starts at the next logon, "
+                            + "or now with: ai-keep-awake autostart on");
+        }
     }
 
     private static int UninstallCommand(Options options, Config config, CliHost host)

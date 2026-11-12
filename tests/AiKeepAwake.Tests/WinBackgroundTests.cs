@@ -69,3 +69,14 @@ public class ScheduledTaskTests
         Assert.Equal("alive=0 self=1", done.StandardOutput.Trim());   // self=1 shows the marker really was there to find
     }
 }
+
+public class ScheduledTaskStartTests
+{
+    [Fact]
+    public void Start_runs_and_reports_no_task()
+    {
+        // A name no task can have, so Get-ScheduledTask finds nothing and nothing is started: this only checks
+        // that the script runs and says there was no task.
+        Assert.False(new ScheduledTask($"ai-keep-awake test {Guid.NewGuid():N}").Start());
+    }
+}

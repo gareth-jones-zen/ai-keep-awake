@@ -36,12 +36,148 @@ public static class Programs
     public static List<string> Missing(string programDir) =>
         Names.Where(name => !File.Exists(Path.Combine(programDir, name))).ToList();
 
-    /// <summary>Copy both programs into installDir, replacing older copies. Throws IOException if one is in use.</summary>
-    public static void Copy(string programDir, string installDir)
+    /// <summary>Copy both programs into installDir, replacing older copies, even while one is running.
+    ///
+    /// Every hook call runs the installed ai-keep-awake-background.exe, from every open session and every
+    /// headless run, and a running exe can't be overwritten (nor can one Defender is scanning). It can be
+    /// renamed, though. So each program is copied in as NAME.new first; then each old one is renamed aside to
+    /// NAME.old and the new one moved into its place, retrying briefly. A failure puts back anything already
+    /// swapped, so the install is never left half old and half new. The .old files are deleted on the next
+    /// install, once nothing is running them. Throws IOException or UnauthorizedAccessException if it can't.</summary>
+    public static void Copy(string programDir, string installDir, int attempts = 10, TimeSpan? pause = null)
     {
+        var wait = pause ?? TimeSpan.FromMilliseconds(300);
         Directory.CreateDirectory(installDir);
+        Tidy(installDir);
+        var swapped = new List<(string Target, string? Aside)>();
+        try
+        {
+            foreach (var name in Names)
+            {
+                var source = Path.Combine(programDir, name);
+                var staged = Path.Combine(installDir, name + ".new");
+                Retry(() => File.Copy(source, staged, overwrite: true), attempts, wait);
+            }
+            foreach (var name in Names)
+            {
+                var target = Path.Combine(installDir, name);
+                swapped.Add((target, Retry(() => Swap(target), attempts, wait)));
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            foreach (var (target, aside) in Enumerable.Reverse(swapped))
+                PutBack(target, aside);
+            foreach (var name in Names)
+                TryDelete(Path.Combine(installDir, name + ".new"));
+            throw;
+        }
+        foreach (var (_, aside) in swapped)
+            if (aside is not null)
+                TryDelete(aside);   // fails, harmlessly, while something is still running it; the next install tidies it
+    }
+
+    /// <summary>Rename the old program aside and move the staged one into its place. Returns where the old one
+    /// went (null if there wasn't one). If the move in fails, the old one is put back before it throws.</summary>
+    private static string? Swap(string target)
+    {
+        string? aside = null;
+        if (File.Exists(target))
+        {
+            aside = AsideName(target);
+            File.Move(target, aside);
+        }
+        try
+        {
+            File.Move(target + ".new", target);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            if (aside is not null)
+                TryMove(aside, target);
+            throw;
+        }
+        return aside;
+    }
+
+    /// <summary>Undo one swap: the new program aside (it may be running already), the old one back.</summary>
+    private static void PutBack(string target, string? aside)
+    {
+        if (aside is null || !File.Exists(aside))
+            return;
+        var newAside = AsideName(target, skip: aside);
+        if (File.Exists(target) && !TryMove(target, newAside))
+            return;
+        TryMove(aside, target);
+        TryDelete(newAside);
+    }
+
+    /// <summary>NAME.old, or NAME.2.old and so on while an earlier one is still running and can't be deleted.</summary>
+    private static string AsideName(string target, string? skip = null)
+    {
+        for (var n = 1; ; n++)
+        {
+            var aside = n == 1 ? target + ".old" : $"{target}.{n}.old";
+            if (string.Equals(aside, skip, StringComparison.OrdinalIgnoreCase))
+                continue;   // the old program, waiting to be put back
+            if (!File.Exists(aside) || TryDelete(aside))
+                return aside;
+        }
+    }
+
+    /// <summary>Delete what earlier installs left: old programs set aside, and copies staged but never moved in.
+    /// One still running is left for next time.</summary>
+    private static void Tidy(string installDir)
+    {
+        var options = new EnumerationOptions { MatchType = MatchType.Simple, MatchCasing = MatchCasing.CaseInsensitive };
         foreach (var name in Names)
-            File.Copy(Path.Combine(programDir, name), Path.Combine(installDir, name), overwrite: true);
+            foreach (var pattern in new[] { name + ".old", name + ".*.old", name + ".new" })
+                foreach (var path in Directory.GetFiles(installDir, pattern, options))
+                    TryDelete(path);
+    }
+
+    private static T Retry<T>(Func<T> action, int attempts, TimeSpan pause)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return action();
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException && attempt < attempts)
+            {
+                Thread.Sleep(pause);
+            }
+        }
+    }
+
+    private static void Retry(Action action, int attempts, TimeSpan pause) =>
+        Retry(() => { action(); return 0; }, attempts, pause);
+
+    private static bool TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryMove(string from, string to)
+    {
+        try
+        {
+            File.Move(from, to);
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>The background program the task should run: the installed copy if there is one, else the one
