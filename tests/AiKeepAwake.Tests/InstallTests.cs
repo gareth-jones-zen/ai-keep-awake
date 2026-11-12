@@ -128,6 +128,15 @@ public class InstallTests : Temp
     }
 
     [Fact]
+    public void A_byte_order_mark_is_tolerated()
+    {
+        File.WriteAllBytes(settings, [0xEF, 0xBB, 0xBF, .. "{\"model\": \"opus\"}"u8]);
+        Assert.True(DoInstall().Changed);
+        Assert.Equal((byte)'{', File.ReadAllBytes(settings)[0]);
+        Assert.Equal("opus", ReadBack()["model"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void A_non_object_is_refused()
     {
         File.WriteAllText(settings, "[]");
