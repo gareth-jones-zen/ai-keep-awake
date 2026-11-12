@@ -30,12 +30,23 @@ public static partial class Cli
         var probe = Locks.SingleInstance(Watcher.LockName(config));
         var running = probe is null;
         probe?.Release();
-        var task = host.Tasks(AutoStart.TaskName).Status();
+        IReadOnlyDictionary<string, string>? task = null;
+        string? unread = null;
+        try
+        {
+            task = host.Tasks(AutoStart.TaskName).Status();
+        }
+        catch (Exception error) when (IsTaskError(error))
+        {
+            unread = error.Message;
+        }
         Print(output, $"Watcher:    {(running ? "running" : "not running")}; "
                       + (task is not null
                           ? $"task '{AutoStart.TaskName}' {task.GetValueOrDefault("state", "?")}, last run {task.GetValueOrDefault("last_run", "?")}"
                             + $" ({task.GetValueOrDefault("last_result", "?")})"
-                          : "no logon task (ai-keep-awake install)"));
+                          : unread is not null
+                              ? $"task '{AutoStart.TaskName}' couldn't be read ({unread})"
+                              : "no logon task (ai-keep-awake install)"));
 
         JsonObject state = [];
         try

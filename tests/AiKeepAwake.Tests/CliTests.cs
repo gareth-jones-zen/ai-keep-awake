@@ -195,6 +195,38 @@ public class CliTests : Temp
     }
 
     [Fact]
+    public void Task_errors_are_reported_not_thrown()
+    {
+        Run("install", "--settings", settings);
+        var leases = Path.Combine(Folder, "Local", "ai-keep-awake", "leases");   // the default, from the fake environment
+        Directory.CreateDirectory(leases);
+        File.WriteAllText(Path.Combine(leases, "s1.json"), "{}");
+        foreach (var name in new[] { AutoStart.TaskName, AutoStart.OldTaskName })
+            tasks[name].FailOn.UnionWith(["disable", "status"]);
+
+        // Uninstall: the hooks come out and the leases go, and the task failure makes it exit 1.
+        Assert.Equal(1, Run("uninstall", "--settings", settings));
+        Assert.Contains("'ai-keep-awake watch' couldn't be removed: Couldn't disable the task", error.ToString());
+        Assert.Contains("'claude-keep-awake watch' couldn't be removed", error.ToString());
+        Assert.Empty(Install.Installed(settings));
+        Assert.Contains("1 lease file(s) cleared.", output.ToString());
+
+        Assert.Equal(1, Run("autostart", "off"));
+        Assert.Contains("couldn't be removed", error.ToString());
+        Assert.Equal(1, Run("autostart", "status"));
+        Assert.Contains("couldn't be read", error.ToString());
+
+        Assert.Equal(0, Run("status"));
+        Assert.Contains("task 'ai-keep-awake watch' couldn't be read (Couldn't read the task: PowerShell said no)", output.ToString());
+        Assert.Contains("Lock point:", output.ToString());   // and the rest is still reported
+
+        Assert.Equal(0, Run("install", "--settings", settings, "--dry-run"));
+        Assert.Contains("Couldn't check for the old task 'claude-keep-awake watch'", error.ToString());
+        Assert.Equal(0, Run("uninstall", "--settings", settings, "--dry-run"));
+        Assert.Contains("Couldn't check for the old task", error.ToString());
+    }
+
+    [Fact]
     public void Uninstall_removes_both_tasks_and_leaves_the_programs()
     {
         Run("install", "--settings", settings);

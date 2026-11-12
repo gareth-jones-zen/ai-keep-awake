@@ -37,7 +37,7 @@ public static partial class Cli
             {
                 Print(host.Out, $"\nWould register the Task Scheduler task '{AutoStart.TaskName}' (at every logon, kept running, and "
                                 + $"started now):\n  {exe} {WinBackground.Shell.ListToCommandLine(taskArgs)}");
-                if (host.Tasks(AutoStart.OldTaskName).Status() is not null)
+                if (OldTaskExists(host))
                     Print(host.Out, $"Would remove the old task '{AutoStart.OldTaskName}' (the Python claude-keep-awake), and stop its watcher.");
             }
             return 0;
@@ -164,7 +164,7 @@ public static partial class Cli
             if (!options.NoAutostart)
             {
                 Print(host.Out, $"\nWould remove the Task Scheduler task '{AutoStart.TaskName}', if it exists, and stop the watcher.");
-                if (host.Tasks(AutoStart.OldTaskName).Status() is not null)
+                if (OldTaskExists(host))
                     Print(host.Out, $"Would remove the old task '{AutoStart.OldTaskName}' (the Python claude-keep-awake) too.");
             }
             return 0;
@@ -172,20 +172,53 @@ public static partial class Cli
         Print(host.Out, report.Changed
             ? $"Hooks removed from {path}." + (report.Backup is not null ? $" Backup: {report.Backup}" : "")
             : $"None of this tool's hooks were in {path}.");
+        // The hooks are out by now, so a task that can't be removed is reported and the rest still done.
+        var failed = false;
         if (!options.NoAutostart)
         {
-            Print(host.Out, host.Tasks(AutoStart.TaskName).Disable()
-                ? "The watcher's task is removed (and the watcher stopped)."
-                : "There was no watcher task.");
-            if (host.Tasks(AutoStart.OldTaskName).Disable())
-                Print(host.Out, $"The old task '{AutoStart.OldTaskName}' is removed too.");
+            try
+            {
+                Print(host.Out, host.Tasks(AutoStart.TaskName).Disable()
+                    ? "The watcher's task is removed (and the watcher stopped)."
+                    : "There was no watcher task.");
+            }
+            catch (Exception error) when (IsTaskError(error))
+            {
+                Print(host.Err, $"The watcher's task '{AutoStart.TaskName}' couldn't be removed: {error.Message}");
+                failed = true;
+            }
+            try
+            {
+                if (host.Tasks(AutoStart.OldTaskName).Disable())
+                    Print(host.Out, $"The old task '{AutoStart.OldTaskName}' is removed too.");
+            }
+            catch (Exception error) when (IsTaskError(error))
+            {
+                Print(host.Err, $"The old task '{AutoStart.OldTaskName}' couldn't be removed: {error.Message}");
+                failed = true;
+            }
         }
         var gone = Leases.Clear(config.LeasesDir);
         if (gone > 0)
             Print(host.Out, $"{gone} lease file(s) cleared.");
         if (Programs.Names.Any(name => File.Exists(Path.Combine(config.InstallDir, name))))
             Print(host.Out, $"The programs are still in {config.InstallDir}; delete that folder to remove them.");
-        return 0;
+        return failed ? 1 : 0;
+    }
+
+    /// <summary>Whether the Python tool's task is there, for the dry runs. If Task Scheduler can't be asked, says
+    /// so and answers no.</summary>
+    private static bool OldTaskExists(CliHost host)
+    {
+        try
+        {
+            return host.Tasks(AutoStart.OldTaskName).Status() is not null;
+        }
+        catch (Exception error) when (IsTaskError(error))
+        {
+            Print(host.Err, $"Couldn't check for the old task '{AutoStart.OldTaskName}': {error.Message}");
+            return false;
+        }
     }
 
     private static int AutostartCommand(string action, Config config, CliHost host)
@@ -200,7 +233,7 @@ public static partial class Cli
             {
                 command = task.Enable(exe, args, Path.GetDirectoryName(config.Path));
             }
-            catch (Exception error) when (error is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception)
+            catch (Exception error) when (IsTaskError(error))
             {
                 Print(host.Err, $"The watcher's task couldn't be registered: {error.Message}");
                 return 1;
@@ -208,10 +241,29 @@ public static partial class Cli
             Print(host.Out, $"Autostart is on: '{AutoStart.TaskName}' runs at every logon, and has started now.\n  {command}");
         }
         else if (action == "off")
-            Print(host.Out, task.Disable() ? "Autostart is off." : "Autostart was already off.");
+        {
+            try
+            {
+                Print(host.Out, task.Disable() ? "Autostart is off." : "Autostart was already off.");
+            }
+            catch (Exception error) when (IsTaskError(error))
+            {
+                Print(host.Err, $"The watcher's task couldn't be removed: {error.Message}");
+                return 1;
+            }
+        }
         else
         {
-            var info = task.Status();
+            IReadOnlyDictionary<string, string>? info;
+            try
+            {
+                info = task.Status();
+            }
+            catch (Exception error) when (IsTaskError(error))
+            {
+                Print(host.Err, $"The watcher's task couldn't be read: {error.Message}");
+                return 1;
+            }
             if (info is null)
                 Print(host.Out, "Autostart is off. `ai-keep-awake autostart on` turns it on.");
             else
