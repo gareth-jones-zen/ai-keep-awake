@@ -80,3 +80,93 @@ public class ScheduledTaskStartTests
         Assert.False(new ScheduledTask($"ai-keep-awake test {Guid.NewGuid():N}").Start());
     }
 }
+
+/// <summary>Holds a named lock on a thread of its own, as a watcher in another process would.</summary>
+public sealed class LockHolder : IDisposable
+{
+    private readonly ManualResetEventSlim held = new(), done = new();
+    private readonly Thread thread;
+
+    public LockHolder(string name)
+    {
+        thread = new Thread(() =>
+        {
+            var lockObject = Locks.SingleInstance(name)!;
+            held.Set();
+            done.Wait();
+            lockObject.Release();
+        });
+        thread.Start();
+        held.Wait();
+    }
+
+    public void Dispose()
+    {
+        done.Set();
+        thread.Join();
+        held.Dispose();
+        done.Dispose();
+    }
+}
+
+public class LockTests
+{
+    private static string Unique() => $"ai-keep-awake-test-{Guid.NewGuid():N}";
+
+    /// <summary>Whether another thread could take the lock now (releasing it again if so).</summary>
+    private static bool FreeElsewhere(string name)
+    {
+        var free = false;
+        var thread = new Thread(() =>
+        {
+            var lockObject = Locks.SingleInstance(name);
+            free = lockObject is not null;
+            lockObject?.Release();
+        });
+        thread.Start();
+        thread.Join();
+        return free;
+    }
+
+    [Fact]
+    public void Held_looks_without_taking()
+    {
+        var name = Unique();
+        Assert.False(Locks.Held(name));
+        Assert.False(Locks.Held(name));   // looking doesn't create it
+        using (new LockHolder(name))
+        {
+            Assert.True(Locks.Held(name));
+            Assert.False(FreeElsewhere(name));   // still held by its holder, not disturbed by the look
+        }
+        Assert.False(Locks.Held(name));
+        Assert.True(FreeElsewhere(name));
+    }
+
+    [Fact]
+    public void Release_on_another_thread_throws_and_leaves_it_releasable()
+    {
+        var name = Unique();
+        var lockObject = Locks.SingleInstance(name)!;
+        Exception? error = null;
+        var other = new Thread(() =>
+        {
+            try
+            {
+                lockObject.Release();
+            }
+            catch (Exception e)
+            {
+                error = e;
+            }
+        });
+        other.Start();
+        other.Join();
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.Contains("not the thread that acquired it", error!.Message);
+        Assert.False(FreeElsewhere(name));   // still held, not silently stuck as released
+        lockObject.Release();                // the right thread can still release it
+        Assert.True(FreeElsewhere(name));
+        lockObject.Release();                // and a second release is a no-op
+    }
+}

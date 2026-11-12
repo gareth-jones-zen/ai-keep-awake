@@ -261,6 +261,23 @@ public class CliTests : Temp
     }
 
     [Fact]
+    public void Status_sees_a_running_watcher_without_taking_its_lock()
+    {
+        var name = Watcher.LockName(Config.Load(configPath, Env));
+        using (new LockHolder(name))
+        {
+            Assert.Equal(0, Run("status"));
+            Assert.Contains("Watcher:    running;", output.ToString());
+            Assert.True(WinBackground.Locks.Held(name));
+        }
+        Assert.Equal(0, Run("status"));
+        Assert.Contains("Watcher:    not running;", output.ToString());
+        var watcherLock = WinBackground.Locks.SingleInstance(name);   // status left nothing behind
+        Assert.NotNull(watcherLock);
+        watcherLock.Release();
+    }
+
+    [Fact]
     public void Config_creates_the_default_file_once()
     {
         (output, error) = (new StringWriter(), new StringWriter());

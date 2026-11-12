@@ -27,9 +27,7 @@ public static partial class Cli
         var installed = Programs.Names.All(name => File.Exists(Path.Combine(config.InstallDir, name)));
         Print(output, $"Programs:   {config.InstallDir}{(installed ? "" : " (not installed there)")}");
 
-        var probe = Locks.SingleInstance(Watcher.LockName(config));
-        var running = probe is null;
-        probe?.Release();
+        var running = Locks.Held(Watcher.LockName(config));   // looked at, never taken, so a starting watcher isn't put off
         IReadOnlyDictionary<string, string>? task = null;
         string? unread = null;
         try

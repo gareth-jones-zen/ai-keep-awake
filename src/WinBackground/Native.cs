@@ -70,6 +70,9 @@ internal static partial class Native
     [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint CreateMutexW(nint attributes, [MarshalAs(UnmanagedType.Bool)] bool initialOwner, string name);
 
+    [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint OpenMutexW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, string name);
+
     [LibraryImport("kernel32.dll", SetLastError = true)]
     internal static partial uint WaitForSingleObject(nint handle, uint milliseconds);
 
