@@ -12,9 +12,9 @@ public sealed record ChangeReport(bool Changed, string Diff, string? Backup);
 
 /// <summary>Putting the hooks into Claude Code's user settings, and taking them out again.
 ///
-/// Only this tool's own hook entries are ever added or removed: each is a command hook whose command or
-/// arguments name this tool (or the Python claude-keep-awake it replaces), so they're found by that, and
-/// nothing else in the file is touched. Each gets a matcher group of its own rather than joining someone
+/// Only this tool's own hook entries are ever added or removed: each is a command hook that runs one of its
+/// programs with "hook" as the first argument (or the Python claude-keep-awake's hook.py, which it replaces), so
+/// they're found by that shape, and nothing else in the file is touched. Each gets a matcher group of its own rather than joining someone
 /// else's. The file is backed up before every change, written whole and replaced in one step, and left alone
 /// if it isn't valid JSON.
 ///
@@ -29,11 +29,9 @@ public static class Install
     /// run), and a killed hook shows an error and writes no lease. So well over that.</summary>
     public const int Timeout = 15;
 
-    /// <summary>What marks a hook as ours: this tool, and the Python claude-keep-awake it replaces.</summary>
-    public static readonly string[] Marks = ["ai-keep-awake", "ai_keep_awake", "claude_keep_awake", "claude-keep-awake"];
-
-    /// <summary>What marks a hook as the old Python tool's only.</summary>
-    public static readonly string[] OldMarks = ["claude_keep_awake", "claude-keep-awake"];
+    /// <summary>The script the Python claude-keep-awake's hooks ran (pythonw.exe -I -S ...\claude_keep_awake\hook.py
+    /// action), which install replaces and uninstall removes.</summary>
+    public const string OldScript = @"claude_keep_awake\hook.py";
 
     /// <summary>(event, matcher, action).</summary>
     public static readonly (string Event, string? Matcher, string Action)[] Events =
@@ -70,26 +68,28 @@ public static class Install
         };
     }
 
-    /// <summary>Whether a hook handler is this tool's (old: the Python tool's instead).</summary>
-    public static bool IsOurs(JsonNode? item) => Names(item, Marks);
+    /// <summary>Whether a hook handler is one install put there: this tool's, or the Python tool's it replaces.</summary>
+    public static bool IsOurs(JsonNode? item) => IsNew(item) || IsOld(item);
 
-    public static bool IsOld(JsonNode? item) => Names(item, OldMarks) && !Names(item, ["ai-keep-awake", "ai_keep_awake"]);
-
-    private static bool Names(JsonNode? item, string[] marks)
+    /// <summary>This tool's: the command one of its two programs (by file name, in any folder) and the first
+    /// argument "hook". Matched by that shape rather than by the name appearing somewhere, so someone else's hook
+    /// that merely mentions ai-keep-awake (a script in a repo of that name, a notifier's title) is left alone.</summary>
+    public static bool IsNew(JsonNode? item)
     {
-        if (item is not JsonObject handler)
+        if (item is not JsonObject handler || Text(handler["command"]) is not { } command)
             return false;
-        var texts = new List<string>();
-        texts.Add(handler.TryGetPropertyValue("command", out var command) ? Py.Str(command) : "");
-        if (handler.TryGetPropertyValue("args", out var args))
-        {
-            if (args is JsonArray list)
-                texts.AddRange(list.OfType<JsonValue>().Where(a => a.GetValueKind() == JsonValueKind.String).Select(a => a.GetValue<string>()));
-            else if (args is JsonObject keys)
-                texts.AddRange(keys.Select(pair => pair.Key));
-        }
-        return texts.Any(text => marks.Any(mark => text.Contains(mark, StringComparison.OrdinalIgnoreCase)));
+        var program = Path.GetFileName(command.Trim().Trim('"'));
+        return (program.Equals(ConsoleExe, StringComparison.OrdinalIgnoreCase) || program.Equals(BackgroundExe, StringComparison.OrdinalIgnoreCase))
+               && handler["args"] is JsonArray { Count: > 0 } args && Text(args[0]) == "hook";
     }
+
+    /// <summary>The Python claude-keep-awake's: an argument that is its hook.py (either slash, any case).</summary>
+    public static bool IsOld(JsonNode? item) =>
+        item is JsonObject handler && handler["args"] is JsonArray args
+        && args.Any(arg => Text(arg) is { } text && text.Replace('/', '\\').EndsWith(OldScript, StringComparison.OrdinalIgnoreCase));
+
+    private static string? Text(JsonNode? node) =>
+        node is JsonValue value && value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : null;
 
     /// <summary>A copy with this tool's hook entries removed, and how many there were. Empty groups and events
     /// that only held ours go too; anything else stays exactly as it was.</summary>
@@ -234,7 +234,7 @@ public static class Install
     /// <summary>The events that have this tool's hook (old: the Python tool's), from the settings file.</summary>
     public static List<string> Installed(string path, bool old = false)
     {
-        Func<JsonNode?, bool> match = old ? IsOld : item => IsOurs(item) && !IsOld(item);
+        Func<JsonNode?, bool> match = old ? IsOld : IsNew;
         JsonObject settings;
         try
         {

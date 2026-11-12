@@ -200,6 +200,53 @@ public class InstallTests : Temp
         Assert.True(PyJson.Equal(original, ReadBack()));
     }
 
+    private static JsonObject Command(string command, params string[] args)
+    {
+        var handler = new JsonObject { ["type"] = "command", ["command"] = command };
+        if (args.Length > 0)
+            handler["args"] = new JsonArray(args.Select(a => (JsonNode)a).ToArray());
+        return handler;
+    }
+
+    [Fact]
+    public void Ours_is_recognised_by_its_shape()
+    {
+        Assert.True(Install.IsNew(Install.Handler(config, "busy")));
+        Assert.True(Install.IsNew(Command(@"D:\Tools\AI-KEEP-AWAKE-BACKGROUND.EXE", "hook", "stop")));
+        Assert.True(Install.IsNew(Command("C:/Users/x/ai-keep-awake.exe", "hook", "busy")));
+        Assert.True(Install.IsNew(Command("\"C:\\Program Files\\ai-keep-awake\\ai-keep-awake-background.exe\"", "hook", "end")));
+        Assert.True(Install.IsOld(Command("pythonw.exe", "-I", "-S", "C:/src/claude_keep_awake/hook.py", "busy")));
+        Assert.True(Install.IsOld(OldHook("end")));
+        Assert.False(Install.IsNew(OldHook("end")));
+        Assert.False(Install.IsOld(Install.Handler(config, "busy")));
+    }
+
+    [Fact]
+    public void Hooks_that_only_mention_the_name_are_not_ours()
+    {
+        var notOurs = new[]
+        {
+            Command(@"C:\Users\x\source\repos\ai-keep-awake\scripts\lint.cmd"),
+            Command("pwsh.exe", "-File", @"C:\Users\x\source\repos\ai-keep-awake\notify.ps1"),
+            Command("notify.exe", "--title", "claude-keep-awake finished"),
+            Command("python.exe", @"C:\x\claude_keep_awake\other.py"),
+            Command("python.exe", @"C:\x\claude_keep_awake\hook.py.bak"),
+            Command(@"C:\Tools\ai-keep-awake.exe", "watch"),
+            Command(@"C:\Tools\ai-keep-awake-background.exe"),
+            Command(@"C:\Tools\my-ai-keep-awake-background.exe", "hook", "busy"),
+            new JsonObject { ["type"] = "command", ["command"] = "x", ["args"] = new JsonObject { ["ai-keep-awake"] = "hook" } },
+        };
+        foreach (var handler in notOurs)
+            Assert.False(Install.IsOurs(handler), handler.ToJsonString());
+
+        var data = (JsonObject)original.DeepClone();
+        data["hooks"]!["PreToolUse"] = new JsonArray(notOurs.Select(h => (JsonNode)new JsonObject { ["hooks"] = new JsonArray(h.DeepClone()) }).ToArray());
+        File.WriteAllText(settings, Install.Render(data));
+        DoInstall();
+        DoUninstall();
+        Assert.True(PyJson.Equal(data, ReadBack()));   // every one of them survived install and uninstall
+    }
+
     [Fact]
     public void The_file_is_written_as_python_wrote_it()
     {
