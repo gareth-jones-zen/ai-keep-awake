@@ -20,6 +20,9 @@ public static partial class Cli
                 --install-dir PATH               another folder for the programs
                 --no-autostart                   only the programs and the hooks
             ai-keep-awake uninstall          take out exactly this tool's hooks, and remove the watcher's task
+                --dry-run                        show the change to settings.json and the task; change nothing
+                --settings PATH                  another Claude Code settings file
+                --no-autostart                   leave the watcher's task alone
             ai-keep-awake status             hooks, watcher, leases, the power request, and the lock point from Windows
             ai-keep-awake config             create the settings file (if missing) and say where it is
             ai-keep-awake watch              the watcher itself (what autostart runs)
