@@ -192,11 +192,21 @@ public static class Power
 
     public static long? ParsePowercfg(string text, bool ac)
     {
-        var found = System.Text.RegularExpressions.Regex.Matches(text, @":\s*0x([0-9a-fA-F]+)\s*$",
-            System.Text.RegularExpressions.RegexOptions.Multiline);
+        // The Python's regex, `:\s*0x([0-9a-fA-F]+)\s*$` per line, by hand: Regex would double the program's size.
+        var found = new List<string>();
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd();
+            var x = line.LastIndexOf('x');
+            var hex = x >= 0 ? line[(x + 1)..] : "";
+            if (x < 1 || hex.Length == 0 || !hex.All(char.IsAsciiHexDigit) || line[x - 1] != '0')
+                continue;
+            if (line[..(x - 1)].TrimEnd().EndsWith(':'))
+                found.Add(hex);
+        }
         if (found.Count < 2)
             return null;
-        return Convert.ToInt64(found[ac ? found.Count - 2 : found.Count - 1].Groups[1].Value, 16);
+        return Convert.ToInt64(found[ac ? found.Count - 2 : found.Count - 1], 16);
     }
 
     private static bool Side(bool? ac) => ac ?? OnMains() is not false;

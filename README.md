@@ -1,3 +1,8 @@
+> **The .NET port is in progress on this branch (`dotnet`).** It becomes `ai-keep-awake.exe` and
+> `ai-keep-awake-background.exe` (Native AOT, nothing to install first). The text below still describes the
+> Python claude-keep-awake 0.1.0 (tag `v0.1.0`), which is what runs until the switch-over; it gets rewritten
+> for the exe in a later phase.
+
 # claude-keep-awake
 
 Keep a Windows laptop awake while Claude Code is working, and let it sleep, and lock, as normal otherwise.
