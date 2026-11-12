@@ -48,9 +48,11 @@ jobs:
           Copy-Item publish/ai-keep-awake.exe, publish/ai-keep-awake-background.exe, README.md "stage/$name/"
           Compress-Archive -Path "stage/$name/*" -DestinationPath "dist/$name.zip"
           Copy-Item publish/ai-keep-awake.exe, publish/ai-keep-awake-background.exe dist/
-          Get-ChildItem dist -File | ForEach-Object {
+          # LF line endings, so `sha256sum -c` works as well as Get-FileHash
+          $sums = Get-ChildItem dist -File | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-          } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          }
+          [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", (($sums -join "`n") + "`n"))
           Get-Content dist/SHA256SUMS.txt
           "zip=dist/$name.zip" >> $env:GITHUB_OUTPUT
 
