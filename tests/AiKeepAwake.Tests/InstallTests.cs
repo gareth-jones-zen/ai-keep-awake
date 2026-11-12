@@ -40,7 +40,7 @@ public class InstallTests : Temp
         var ours = data["hooks"]!["Stop"]![1]!["hooks"]![0]!;
         Assert.EndsWith(@"\ai-keep-awake-background.exe", ours["command"]!.GetValue<string>());
         Assert.Equal(["hook", "stop"], ours["args"]!.AsArray().Select(a => a!.GetValue<string>()));
-        Assert.Equal(5, ours["timeout"]!.GetValue<int>());
+        Assert.Equal(15, ours["timeout"]!.GetValue<int>());   // the first run after an upgrade waits for Defender
     }
 
     [Fact]

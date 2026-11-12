@@ -24,7 +24,10 @@ public static class Install
 {
     public const string ConsoleExe = "ai-keep-awake.exe";
     public const string BackgroundExe = "ai-keep-awake-background.exe";
-    public const int Timeout = 5;   // seconds; the hook takes a few milliseconds
+    /// <summary>Seconds Claude Code gives a hook before killing it. A hook call takes about 40 ms, but the first
+    /// run of a newly installed exe waits for Defender's scan (about 6 seconds was measured in the Phase 4 parity
+    /// run), and a killed hook shows an error and writes no lease. So well over that.</summary>
+    public const int Timeout = 15;
 
     /// <summary>What marks a hook as ours: this tool, and the Python claude-keep-awake it replaces.</summary>
     public static readonly string[] Marks = ["ai-keep-awake", "ai_keep_awake", "claude_keep_awake", "claude-keep-awake"];
