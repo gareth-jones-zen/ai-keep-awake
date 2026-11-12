@@ -1,0 +1,71 @@
+name: release
+
+# Push a tag such as v1.0.0 or v1.0.0-rc.1. A tag with a hyphen becomes a pre-release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write        # create the release
+  id-token: write        # sign the provenance attestation
+  attestations: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Version from the tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$($version.Contains('-'))" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Publish (Native AOT, win-x64)
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          dotnet publish src/AiKeepAwake.Console -c Release -r win-x64 -o publish -p:Version=$v
+          dotnet publish src/AiKeepAwake.Background -c Release -r win-x64 -o publish -p:Version=$v
+          & ./publish/ai-keep-awake.exe --version
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $name = "ai-keep-awake-${{ steps.version.outputs.version }}-win-x64"
+          New-Item -ItemType Directory -Path dist, "stage/$name" | Out-Null
+          Copy-Item publish/ai-keep-awake.exe, publish/ai-keep-awake-background.exe, README.md "stage/$name/"
+          Compress-Archive -Path "stage/$name/*" -DestinationPath "dist/$name.zip"
+          Copy-Item publish/ai-keep-awake.exe, publish/ai-keep-awake-background.exe dist/
+          Get-ChildItem dist -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+          "zip=dist/$name.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*.exe
+
+      - name: Create the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flags = @('--generate-notes', '--title', "ai-keep-awake ${{ steps.version.outputs.version }}")
+          if ('${{ steps.version.outputs.prerelease }}' -eq 'True') { $flags += '--prerelease' }
+          gh release create '${{ github.ref_name }}' dist/*.zip dist/*.exe dist/SHA256SUMS.txt @flags
