@@ -10,15 +10,34 @@ permissions:
   id-token: write        # sign the provenance attestation
   attestations: write
 
+# WinBackground comes from background-tools-lib, checked out beside this repo as the build expects (see build.yml).
+env:
+  BACKGROUND_TOOLS_LIB_REF: main
+
 jobs:
   release:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ai-keep-awake
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: ai-keep-awake
+
+      - uses: actions/checkout@v5
+        with:
+          repository: gareth-jones-zen/background-tools-lib
+          ref: ${{ env.BACKGROUND_TOOLS_LIB_REF }}
+          path: background-tools-lib
+
+      - name: Library commit
+        shell: pwsh
+        run: git -C ../background-tools-lib log -1 --format='background-tools-lib %H %s'
 
       - uses: actions/setup-dotnet@v5
         with:
-          global-json-file: global.json
+          global-json-file: ai-keep-awake/global.json
 
       - name: Version from the tag
         id: version
@@ -60,8 +79,8 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
-            dist/*.zip
-            dist/*.exe
+            ai-keep-awake/dist/*.zip
+            ai-keep-awake/dist/*.exe
 
       - name: Create the release
         shell: pwsh

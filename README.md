@@ -258,7 +258,14 @@ package can go (`pip uninstall claude-keep-awake`), and so can `%LOCALAPPDATA%\c
 You need the .NET 11 SDK (`global.json` pins the feature band). Native AOT publishing also needs the Visual
 Studio C++ build tools ("Desktop development with C++"), with `vswhere.exe` on the PATH.
 
+The Windows calls come from the `WinBackground` library in
+[background-tools-lib](https://github.com/gareth-jones-zen/background-tools-lib), shared with other tools.
+Check it out beside this repo, so the two folders sit side by side (for example `source\repos\ai-keep-awake` and
+`source\repos\background-tools-lib`); the build references it there. To build against a checkout somewhere
+else, pass `-p:BackgroundToolsLib=<its folder>`. The workflows check out its `main` beside this repo.
+
 ```powershell
+git clone https://github.com/gareth-jones-zen/background-tools-lib ..\background-tools-lib
 dotnet build -c Release
 dotnet test -c Release
 dotnet publish src/AiKeepAwake.Console -c Release -r win-x64 -o publish
@@ -275,5 +282,5 @@ dotnet publish src/AiKeepAwake.Background -c Release -r win-x64 -o publish
 | `src/AiKeepAwake` | The hook, watcher, lock point, install and commands |
 | `src/AiKeepAwake.Console` | `ai-keep-awake.exe` |
 | `src/AiKeepAwake.Background` | `ai-keep-awake-background.exe` |
-| `src/WinBackground` | The Windows calls: power requests, settings, Task Scheduler, notifications, locks, the log |
+| `..\background-tools-lib\src\WinBackground` | The Windows calls: power requests, settings, Task Scheduler, notifications, locks, the log (with its own tests, in that repo) |
 | `tests/AiKeepAwake.Tests` | xUnit tests, with fakes for Windows, Claude Code and the clock; a few run the built programs in a second process |

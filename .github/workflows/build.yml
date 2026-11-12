@@ -6,14 +6,29 @@ on:
   pull_request:
   workflow_dispatch:
 
+# WinBackground comes from background-tools-lib, which the build expects beside this repo, as it is locally
+# (source/repos/ai-keep-awake and source/repos/background-tools-lib). So both are checked out side by side.
+env:
+  BACKGROUND_TOOLS_LIB_REF: main
+
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ai-keep-awake
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: ai-keep-awake
+      - uses: actions/checkout@v5
+        with:
+          repository: gareth-jones-zen/background-tools-lib
+          ref: ${{ env.BACKGROUND_TOOLS_LIB_REF }}
+          path: background-tools-lib
       - uses: actions/setup-dotnet@v5
         with:
-          global-json-file: global.json
+          global-json-file: ai-keep-awake/global.json
       - name: Build and test
         run: dotnet test -c Release
       - name: Publish (Native AOT)
@@ -24,4 +39,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ai-keep-awake-win-x64
-          path: out/*.exe
+          path: ai-keep-awake/out/*.exe

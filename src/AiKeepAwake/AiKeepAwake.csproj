@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <ProjectReference Include="..\WinBackground\WinBackground.csproj" />
+    <ProjectReference Include="$(BackgroundToolsLib)src\WinBackground\WinBackground.csproj" />
     <PackageReference Include="Tomlyn" Version="2.11.1" />
   </ItemGroup>
+  <Target Name="CheckBackgroundToolsLib" BeforeTargets="Restore;_GenerateRestoreGraph;ResolveProjectReferences"
+          Condition="!Exists('$(BackgroundToolsLib)src\WinBackground\WinBackground.csproj')">
+    <Error Text="WinBackground not found at $(BackgroundToolsLib)src\WinBackground. Check out https://github.com/gareth-jones-zen/background-tools-lib beside this repo, or set BackgroundToolsLib to a checkout of it." />
+  </Target>
 </Project>

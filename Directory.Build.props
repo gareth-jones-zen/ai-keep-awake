@@ -13,6 +13,14 @@
     <Authors>Gareth Jones</Authors>
     <RepositoryUrl>https://github.com/gareth-jones-zen/ai-keep-awake</RepositoryUrl>
   </PropertyGroup>
+  <!-- The shared WinBackground library comes from background-tools-lib, checked out beside this repo (both
+       under the same folder, such as source\repos). Set BackgroundToolsLib to build against another checkout. -->
+  <PropertyGroup>
+    <BackgroundToolsLib Condition="'$(BackgroundToolsLib)' == ''">$(MSBuildThisFileDirectory)..\background-tools-lib\</BackgroundToolsLib>
+    <BackgroundToolsLib>$([MSBuild]::EnsureTrailingSlash('$(BackgroundToolsLib)'))</BackgroundToolsLib>
+    <!-- It isn't in the solution, so without this a solution build would build it as Debug. -->
+    <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(IsTestProject)' != 'true'">
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
