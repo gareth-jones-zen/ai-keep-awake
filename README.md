@@ -214,31 +214,6 @@ install folder, so after changing any of those, run `install` again.
 then does nothing. Headless `claude -p` runs fire user hooks too, so a scheduled run keeps the laptop awake
 while it works unless you opt it out.
 
-## Moving from the Python claude-keep-awake
-
-This tool was the Python package `claude-keep-awake` (0.1.0, tag `v0.1.0`). The .NET version needs no Python,
-and `install` takes care of the switch:
-
-- it replaces the old hooks (the ones that ran `claude_keep_awake\hook.py`) with its own;
-- it removes the old task, `claude-keep-awake watch`, and stops its watcher;
-- `status` shows any old hooks still in place, and `install --dry-run` says whether the old task would be removed.
-
-Some names changed, and nothing is carried over from the old ones:
-
-| | Python claude-keep-awake | ai-keep-awake |
-|---|---|---|
-| Settings | `%APPDATA%\claude-keep-awake\config.toml` | `%APPDATA%\ai-keep-awake\config.toml` |
-| Settings variable | `CLAUDE_KEEP_AWAKE_CONFIG` | `AI_KEEP_AWAKE_CONFIG` |
-| Off switch | `CLAUDE_KEEP_AWAKE=0` | `AI_KEEP_AWAKE=0` |
-| Leases, log, state | `%LOCALAPPDATA%\claude-keep-awake\` | `%LOCALAPPDATA%\ai-keep-awake\` |
-| Task | `claude-keep-awake watch` | `ai-keep-awake watch` |
-| Request reason | "Claude Code is working" | "An AI agent is working (Claude Code)" |
-| Hook timeout | 5 seconds | 15 seconds |
-
-If you changed any settings, copy the old `config.toml` across (and change any paths in it that name
-`claude-keep-awake`). Anything that sets `CLAUDE_KEEP_AWAKE=0` needs the new name. Afterwards the old Python
-package can go (`pip uninstall claude-keep-awake`), and so can `%LOCALAPPDATA%\claude-keep-awake\`.
-
 ## Edge cases
 
 | Case | What happens |
