@@ -9,7 +9,7 @@ public static partial class Cli
     public const string Prog = "ai-keep-awake";
 
     public const string Help = """
-        usage: ai-keep-awake [-h] [--version] [--config CONFIG] {config,install,uninstall,status,watch,autostart,hook} ...
+        usage: ai-keep-awake [-h] [--version] [--config CONFIG] {config,install,uninstall,status,watch,autostart,awake,pause,hook} ...
 
         Keep a Windows laptop awake while an AI agent (Claude Code) is working, and let it sleep otherwise.
 
@@ -19,11 +19,17 @@ public static partial class Cli
                 --settings PATH                  another Claude Code settings file
                 --install-dir PATH               another folder for the programs
                 --no-autostart                   only the programs and the hooks
+                --hooks-only                     only the hooks (put them back in settings.json)
             ai-keep-awake uninstall          take out exactly this tool's hooks, and remove the watcher's task
                 --dry-run                        show the change to settings.json and the task; change nothing
                 --settings PATH                  another Claude Code settings file
                 --no-autostart                   leave the watcher's task alone
             ai-keep-awake status             hooks, watcher, leases, the power request, and the lock point from Windows
+                --json                           the same, as JSON
+            ai-keep-awake awake 1h|2h|30m|off    keep the laptop awake by hand for that long (as a Claude session would be:
+                                                 on mains, the 3-hour cap, locking where Windows would); off to stop
+            ai-keep-awake pause 1h|on|off    let the laptop sleep as normal for that long, even while Claude works; on:
+                                             until resumed (never past a logoff); off: resume
             ai-keep-awake config             create the settings file (if missing) and say where it is
             ai-keep-awake watch              the watcher itself (what autostart runs)
             ai-keep-awake autostart on|off|status
@@ -36,9 +42,13 @@ public static partial class Cli
         """;
 
     private const string Usage =
-        "usage: ai-keep-awake [-h] [--version] [--config CONFIG] {config,install,uninstall,status,watch,autostart,hook} ...";
+        "usage: ai-keep-awake [-h] [--version] [--config CONFIG] {config,install,uninstall,status,watch,autostart,awake,pause,hook} ...";
 
-    private static readonly string[] Commands = ["config", "install", "uninstall", "status", "watch", "autostart", "hook"];
+    private static readonly string[] Commands = ["config", "install", "uninstall", "status", "watch", "autostart", "awake", "pause", "hook"];
+
+    /// <summary>The variable Claude Code sets in the shells it runs. Inside one, install leaves the logon entries for
+    /// the person (Claude Code's permission check blocks registering them, rightly).</summary>
+    public const string ClaudeCodeVariable = "CLAUDECODE";
 
     public static string Version =>
         typeof(Cli).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
@@ -51,6 +61,8 @@ public static partial class Cli
         public string? InstallDir;
         public bool DryRun;
         public bool NoAutostart;
+        public bool HooksOnly;
+        public bool Json;
         public string Action = "";
     }
 
@@ -101,7 +113,9 @@ public static partial class Cli
             "install" => InstallCommand(options, config, host),
             "uninstall" => UninstallCommand(options, config, host),
             "autostart" => AutostartCommand(options.Action, config, host),
-            _ => Status(config, host),
+            "awake" => AwakeCommand(options.Action, config, host),
+            "pause" => PauseCommand(options.Action, config, host),
+            _ => options.Json ? StatusJson(config, host) : Status(config, host),
         };
     }
 
@@ -157,6 +171,7 @@ public static partial class Cli
                 {
                     case "--dry-run": options.DryRun = true; continue;
                     case "--no-autostart": options.NoAutostart = true; continue;
+                    case "--hooks-only" when options.Command == "install": options.HooksOnly = true; continue;
                     case "--settings" or "--install-dir":
                         if (++j >= rest.Count)
                             throw new UsageError($"argument {arg}: expected one argument");
@@ -177,17 +192,28 @@ public static partial class Cli
                     continue;
                 }
             }
-            if (options.Command == "autostart" && options.Action.Length == 0 && !arg.StartsWith('-'))
+            if (options.Command == "status" && arg == "--json")
             {
-                if (arg is not ("on" or "off" or "status"))
-                    throw new UsageError($"argument action: invalid choice: '{arg}' (choose from on, off, status)");
+                options.Json = true;
+                continue;
+            }
+            if (options.Command is "autostart" or "awake" or "pause" && options.Action.Length == 0 && !arg.StartsWith('-'))
+            {
                 options.Action = arg;
+                if (options.Command == "autostart" && arg is not ("on" or "off" or "status"))
+                    throw new UsageError($"argument action: invalid choice: '{arg}' (choose from on, off, status)");
+                if (options.Command == "awake" && arg != "off" && Control.Duration(arg) is null)
+                    throw new UsageError($"argument for: '{arg}' isn't a time such as 30m, 1h or 2h (up to 24h), or off");
+                if (options.Command == "pause" && arg is not ("on" or "off") && Control.Duration(arg) is null)
+                    throw new UsageError($"argument for: '{arg}' isn't a time such as 30m or 1h (up to 24h), on or off");
                 continue;
             }
             extra.Add(arg);
         }
         if (options.Command == "autostart" && options.Action.Length == 0)
             throw new UsageError("the following arguments are required: action");
+        if (options.Command is "awake" or "pause" && options.Action.Length == 0)
+            throw new UsageError("the following arguments are required: for");
         if (extra.Count > 0)
             throw new UsageError($"unrecognized arguments: {string.Join(' ', extra)}");
         return options;
@@ -198,4 +224,7 @@ public static partial class Cli
 
     private static string SettingsPath(Options options, Config config, CliHost host) =>
         options.Settings is not null ? PyPath.Resolve(PyPath.ExpandUser(options.Settings, host.Env)) : config.ClaudeSettings;
+
+    /// <summary>Whether this is running inside Claude Code (CLAUDECODE=1 in its environment).</summary>
+    private static bool InsideClaudeCode(CliHost host) => host.Env(ClaudeCodeVariable) is { Length: > 0 } value && value != "0";
 }

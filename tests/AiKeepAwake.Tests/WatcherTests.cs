@@ -185,12 +185,14 @@ public class WatcherTests : Temp
         Session();
         Step(idle: 60);
         var state = JsonNode.Parse(File.ReadAllText(config.StateFile))!.AsObject();
-        Assert.Equal(["held", "why", "since", "updated", "pid", "sessions", "mains", "idle", "lock_after", "lock_why"],
+        Assert.Equal(["held", "why", "since", "updated", "pid", "sessions", "mains", "idle", "lock_after", "lock_why",
+                "manual_until", "manual_until_off", "paused", "paused_until", "version"],
             state.Select(pair => pair.Key));
         var text = File.ReadAllText(config.StateFile);
         Assert.StartsWith("{\"held\": true, \"why\": \"1 session working\", \"since\": 1800000000.0, \"updated\": 1800000000.0, ", text);
-        Assert.EndsWith("\"sessions\": [\"s1\"], \"mains\": true, \"idle\": 60.0, \"lock_after\": 300, "
-                        + "\"lock_why\": \"sleep after 5 min, sign-in required every time\"}", text);
+        Assert.Contains("\"sessions\": [\"s1\"], \"mains\": true, \"idle\": 60.0, \"lock_after\": 300, "
+                        + "\"lock_why\": \"sleep after 5 min, sign-in required every time\", \"manual_until\": null, "
+                        + "\"manual_until_off\": false, \"paused\": false, \"paused_until\": null, \"version\": ", text);
     }
 
     [Fact]

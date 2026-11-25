@@ -44,7 +44,10 @@ public sealed class WindowsSystem : ISystem
 /// It holds the request only while all of these are true:
 /// - a session has a live lease (the hook renews it on every prompt and tool call);
 /// - the laptop is on mains, unless mains_only = false;
-/// - someone has touched the keyboard or mouse within unattended_hours (3 hours by default).
+/// - someone has touched the keyboard or mouse within unattended_hours (3 hours by default);
+/// - it isn't paused (Control: pause.json).
+///
+/// Keep awake now (Control: a lease of kind "manual") counts as a session, under the same rules.
 ///
 /// While it holds the request, it locks the session where Windows would have locked it (LockPoint), unless
 /// another program is keeping the display on (a call, a video, a presentation), because then Windows wouldn't
@@ -69,6 +72,8 @@ public sealed class Watcher
     private double aliveAt;
     private double stateAt;
     private (bool? Mains, double Idle, LockPoint Point)? last;
+    private (int Sessions, bool Manual, bool Paused)? written;
+    private string? writtenWhy;
 
     public Watcher(Config config, ISystem system, Action<string> log, Action<string, IReadOnlyList<string>> notify,
         Func<long, bool>? alive = null)
@@ -82,19 +87,39 @@ public sealed class Watcher
     public double? Since { get; private set; }
     public List<Lease> Live { get; private set; } = [];
 
+    /// <summary>The live Claude Code sessions (Live without the manual lease).</summary>
+    public List<Lease> Sessions => Live.Where(lease => !lease.IsManual).ToList();
+
+    /// <summary>The live manual lease (Keep awake now), if any.</summary>
+    public Lease? Manual => Live.FirstOrDefault(lease => lease.IsManual);
+
+    /// <summary>The pause in force, if any.</summary>
+    public Pause? Paused { get; private set; }
+
     /// <summary>The lock point in use; set to null to make the next step re-read it.</summary>
     public LockPoint? Point { get; set; }
 
     /// <summary>Whether to hold the request, and why, in words for the log.</summary>
-    public static (bool Want, string Why) Decide(Config config, int live, bool? mains, double idle)
+    public static (bool Want, string Why) Decide(Config config, int live, bool? mains, double idle) =>
+        Decide(config, live, null, null, mains, idle);
+
+    /// <summary>Whether to hold the request, and why: as for sessions alone, with a pause (nothing is held) and Keep
+    /// awake now (a manual lease, under the same rules as a session) taken into account.</summary>
+    public static (bool Want, string Why) Decide(Config config, int sessions, Lease? manual, Pause? pause, bool? mains, double idle)
     {
-        if (live == 0)
+        if (pause is not null)
+            return (false, pause.Until is { } until ? $"paused until {Control.Clock(until)}" : "paused until resumed");
+        if (sessions == 0 && manual is null)
             return (false, "no Claude Code session is working");
         if (config.MainsOnly && mains == false)
             return (false, "on battery");
         if (idle >= config.UnattendedSeconds)
             return (false, $"nobody at the laptop for {Py.Fixed(idle / 3600, 1)} hours (the cap is {Py.G(config.UnattendedHours)})");
-        return (true, $"{live} session{(live != 1 ? "s" : "")} working");
+        var byHand = manual is null ? ""
+            : manual.UntilOff ? "kept awake by hand until turned off" : $"kept awake by hand until {Control.Clock(manual.Until)}";
+        if (sessions == 0)
+            return (true, byHand);
+        return (true, $"{sessions} session{(sessions != 1 ? "s" : "")} working" + (byHand.Length > 0 ? $", and {byHand}" : ""));
     }
 
     public LockPoint LockPointAt(double now)
@@ -112,9 +137,23 @@ public sealed class Watcher
     public void Step(double now)
     {
         Live = Leases.Live(config.LeasesDir, now, config.CheckPid, alive);
+        var pause = Control.ReadPause(config);
+        if (pause is not null && !Control.Paused(pause, now))
+        {
+            Control.ClearPause(config, wake: false);
+            log("pause ended");
+            pause = null;
+        }
+        if (pause is not null && Paused is null)
+            log(pause.Until is { } until ? $"paused until {Control.Clock(until)}" : "paused until resumed");
+        else if (pause is null && Paused is not null && (Paused.Until is null || Paused.Until > now))
+            log("resumed");
+        Paused = pause;
+        var sessions = Sessions;
+        var manual = Manual;
         var mains = system.OnMains();
         var idle = system.IdleSeconds();
-        var (want, why) = Decide(config, Live.Count, mains, idle);
+        var (want, why) = Decide(config, sessions.Count, manual, pause, mains, idle);
         var changed = want != Held;
         if (changed)
         {
@@ -125,15 +164,16 @@ public sealed class Watcher
         }
         Why = why;
 
-        // The cap: say so once, if sessions are still working when it lets the laptop sleep.
-        if (Live.Count > 0 && idle >= config.UnattendedSeconds)
+        // The cap: say so once, if sessions are still working when it lets the laptop sleep (not while paused, when
+        // the person asked for that).
+        if (sessions.Count > 0 && pause is null && idle >= config.UnattendedSeconds)
         {
             if (!capped)
             {
                 capped = true;
                 notify("Claude Code may now let the laptop sleep",
                 [
-                    $"{Live.Count} session(s) still working, but nobody has used the laptop for "
+                    $"{sessions.Count} session(s) still working, but nobody has used the laptop for "
                     + $"{Py.G(config.UnattendedHours)} hours, so it's no longer kept awake.",
                 ]);
             }
@@ -170,9 +210,11 @@ public sealed class Watcher
             Leases.Tidy(config.LeasesDir, now);
         }
         last = (mains, idle, point);
-        if (changed || now - stateAt >= StateEvery)
+        // Written at once on a change the tray shows (held, sessions, by hand, paused, why), else each minute.
+        var shown = (sessions.Count, manual is not null, pause is not null);
+        if (changed || shown != written || why != writtenWhy || now - stateAt >= StateEvery)
         {
-            stateAt = now;
+            (stateAt, written, writtenWhy) = (now, shown, why);
             WriteState(now, mains, idle, point);
         }
     }
@@ -183,8 +225,9 @@ public sealed class Watcher
             ? null
             : config.Lock is string && seconds == Math.Floor(seconds) ? PyJson.Int((long)seconds) : PyJson.Float(seconds);
         var sessions = new JsonArray();
-        foreach (var lease in Live)
+        foreach (var lease in Live.Where(lease => !lease.IsManual))
             sessions.Add((JsonNode)lease.Session);
+        var manual = Manual;
         var state = new JsonObject
         {
             ["held"] = Held,
@@ -197,6 +240,11 @@ public sealed class Watcher
             ["idle"] = PyJson.Float(idle),
             ["lock_after"] = lockAfter,
             ["lock_why"] = point.Why,
+            ["manual_until"] = manual is null ? null : PyJson.Float(manual.Until),
+            ["manual_until_off"] = manual?.UntilOff ?? false,
+            ["paused"] = Paused is not null,
+            ["paused_until"] = Paused?.Until is { } pausedUntil ? PyJson.Float(pausedUntil) : null,
+            ["version"] = Cli.Version,
         };
         var path = config.StateFile;
         try
@@ -235,13 +283,18 @@ public sealed class Watcher
         ISystem? system = null, Action<double>? sleep = null, int? steps = null, Func<double>? clock = null)
     {
         var now = clock ?? Hook.Now;
-        sleep ??= seconds => Thread.Sleep(TimeSpan.FromSeconds(seconds));
         using var instance = Locks.SingleInstance(LockName(config));
         if (instance is null)
         {
             log("another watcher is already running; not starting a second");
             return 3;
         }
+        // Set by `awake`, `pause` and the tray, so a change applies at once rather than at the next check.
+        using var wake = new EventWaitHandle(false, EventResetMode.AutoReset, Control.WakeName(config));
+        sleep ??= seconds => wake.WaitOne(TimeSpan.FromSeconds(seconds));
+        // A pause never outlives a logoff (nor a restart of the watcher).
+        if (Control.ClearPause(config, wake: false))
+            log("pause ended: the watcher started");
         var watcher = new Watcher(config, system ?? new WindowsSystem(), log, notify);
         var point = watcher.LockPointAt(now());
         log($"started: keeps the laptop awake while Claude Code works; lock point {LockPoint.Minutes(point.Seconds)} ({point.Why})");

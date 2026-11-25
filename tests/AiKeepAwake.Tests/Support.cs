@@ -113,6 +113,9 @@ public sealed class FakeTask(string name, FakeTasks all) : ITask
 
     public (string Exe, IReadOnlyList<string> Args, string? WorkingDir)? Enabled { get; private set; }
 
+    /// <summary>The command Status reports (else the one Enable registered, if any).</summary>
+    public string? Command { get; set; }
+
     public string Enable(string exe, IReadOnlyList<string> args, string? workingDir)
     {
         Call("enable");
@@ -144,7 +147,13 @@ public sealed class FakeTask(string name, FakeTasks all) : ITask
     {
         if (FailOn.Contains("status"))
             throw new InvalidOperationException("Couldn't read the task: PowerShell said no");
-        return Exists ? new Dictionary<string, string> { ["state"] = "Running", ["last_run"] = "today", ["last_result"] = "running" } : null;
+        if (!Exists)
+            return null;
+        var info = new Dictionary<string, string> { ["state"] = "Running", ["last_run"] = "today", ["last_result"] = "running" };
+        var command = Command ?? (Enabled is { } e ? $"{e.Exe} {Shell.ListToCommandLine(e.Args)}" : null);
+        if (command is not null)
+            info["command"] = command;
+        return info;
     }
 }
 

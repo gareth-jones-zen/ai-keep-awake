@@ -64,8 +64,14 @@ public static partial class Cli
         }
         else
             Print(output, "Request:    not held (no watcher)");
+        var pause = Control.ReadPause(config);
+        if (Control.Paused(pause, now))
+            Print(output, $"Paused:     {(pause!.Until is { } pausedUntil ? $"until {Clock(pausedUntil)}" : "until resumed")} (ai-keep-awake pause off)");
 
-        var found = Leases.Read(config.LeasesDir);
+        var all = Leases.Read(config.LeasesDir);
+        foreach (var manual in all.Where(lease => lease.IsManual && lease.Until > now))
+            Print(output, $"By hand:    kept awake {(manual.UntilOff ? "until turned off (the tray)" : $"until {Clock(manual.Until)}")} (ai-keep-awake awake off)");
+        var found = all.Where(lease => !lease.IsManual).ToList();
         if (found.Count == 0)
             Print(output, "Leases:     none");
         foreach (var lease in found)

@@ -3,8 +3,16 @@ using WinBackground;
 
 namespace AiKeepAwake;
 
-/// <summary>One session's lease, as the hook wrote it.</summary>
-public sealed record Lease(string Session, double Until, bool Bg, long? Pid, string? Cwd, string? Event, string Path);
+/// <summary>One lease, as the hook (a Claude Code session) or the "keep awake now" control wrote it.</summary>
+/// <param name="Kind">"claude" for a Claude Code session (a lease without a kind is one); "manual" for Keep awake now.</param>
+/// <param name="UntilOff">A manual lease kept until it's turned off (renewed by the tray, whose process it records).</param>
+public sealed record Lease(string Session, double Until, bool Bg, long? Pid, string? Cwd, string? Event, string Path,
+    string Kind = Lease.Claude, bool UntilOff = false)
+{
+    public const string Claude = "claude", Manual = "manual";
+
+    public bool IsManual => Kind == Manual;
+}
 
 /// <summary>Reading the leases the hook writes: one JSON file per Claude Code session.</summary>
 public static class Leases
@@ -46,6 +54,8 @@ public static class Leases
                 data.TryGetPropertyValue("pid", out var pid);
                 data.TryGetPropertyValue("cwd", out var cwd);
                 data.TryGetPropertyValue("event", out var hookEvent);
+                data.TryGetPropertyValue("kind", out var kind);
+                data.TryGetPropertyValue("until_off", out var untilOff);
                 found.Add(new Lease(
                     System.IO.Path.GetFileNameWithoutExtension(path),
                     hasUntil ? Py.Float(until) : 0,
@@ -53,7 +63,9 @@ public static class Leases
                     Py.Truthy(pid) ? Py.Int(pid) : null,
                     cwd is null ? null : Py.Str(cwd),
                     hookEvent is null ? null : Py.Str(hookEvent),
-                    path));
+                    path,
+                    kind is JsonValue k && k.GetValueKind() == System.Text.Json.JsonValueKind.String ? k.GetValue<string>() : Lease.Claude,
+                    Py.Truthy(untilOff)));
             }
             catch (Exception)
             {

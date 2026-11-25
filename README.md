@@ -15,7 +15,7 @@ else to install first.
 ## Install
 
 1. Download the zip from [Releases](https://github.com/gareth-jones-zen/ai-keep-awake/releases)
-   (`ai-keep-awake-<version>-win-x64.zip`; the current one is the pre-release `v1.0.0-rc.1`).
+   (`ai-keep-awake-<version>-win-x64.zip`, from the release marked Latest).
 2. Unzip it anywhere, open a terminal in that folder, and run:
 
 ```powershell
@@ -57,8 +57,8 @@ from Explorer. To check that a download is the one GitHub Actions built from thi
 `SHA256SUMS.txt` (for the zip and both programs) and a signed build provenance attestation:
 
 ```powershell
-Get-FileHash .\ai-keep-awake-1.0.0-rc.1-win-x64.zip -Algorithm SHA256    # compare with SHA256SUMS.txt
-gh attestation verify .\ai-keep-awake-1.0.0-rc.1-win-x64.zip --repo gareth-jones-zen/ai-keep-awake
+Get-FileHash .\ai-keep-awake-<version>-win-x64.zip -Algorithm SHA256    # compare with SHA256SUMS.txt
+gh attestation verify .\ai-keep-awake-<version>-win-x64.zip --repo gareth-jones-zen/ai-keep-awake
 ```
 
 `sha256sum -c SHA256SUMS.txt --ignore-missing` works too, from Git Bash or WSL.
@@ -95,6 +95,19 @@ watcher exits, so a crash can't leave the laptop awake.
 
 While it's held, `powercfg /requests` (in an admin terminal) shows the request by name.
 
+## Keeping it awake by hand, and pausing
+
+Two controls, for the times the hooks can't know about:
+
+| Command | What it does |
+|---|---|
+| `ai-keep-awake awake 2h` | **Keep awake now**, for a time (`30m`, `1h`, `2h`, up to `24h`): a download or a build carries on while you're at lunch. It follows **the same rules as a Claude Code session**: mains only, the 3-hour cap, and locking where Windows would. `awake off` stops it |
+| `ai-keep-awake pause 1h` | **Pause**: the laptop sleeps as normal for that long, even while Claude works (a train to catch, a laptop going in a bag). `pause on` pauses until `pause off`; a pause never outlives a logoff |
+
+Each turns the other off. Keep awake now is a lease of its own kind (`manual.json` in the leases folder); a pause is
+`pause.json` beside the state file. Either tells the watcher at once (a named event), rather than at its next
+15-second check. `status` shows them as `By hand:` and `Paused:` lines.
+
 ## Locking: where Windows would have locked
 
 Keeping a laptop awake must not keep it unlocked. Without the request, an idle laptop locks at the first of:
@@ -128,9 +141,11 @@ point instead, set `lock = 10` (minutes) in the settings; `lock = "never"` turns
 ```
 ai-keep-awake [--config CONFIG] <command>
 
-ai-keep-awake install [--dry-run] [--settings PATH] [--install-dir PATH] [--no-autostart]
+ai-keep-awake install [--dry-run] [--settings PATH] [--install-dir PATH] [--no-autostart] [--hooks-only]
 ai-keep-awake uninstall                   take out exactly this tool's hooks, and remove the watcher's task
-ai-keep-awake status                      hooks, watcher, leases, the power request, and the lock point from Windows
+ai-keep-awake status [--json]             hooks, watcher, leases, the power request, and the lock point from Windows
+ai-keep-awake awake 1h|2h|30m|off         keep the laptop awake by hand for that long (as a session would be)
+ai-keep-awake pause 1h|on|off             let the laptop sleep as normal, even while Claude works
 ai-keep-awake config                      create the settings file (if missing) and say where it is
 ai-keep-awake autostart on|off|status     the logon task on its own
 ai-keep-awake watch                       the watcher itself (what the logon task runs)
@@ -143,7 +158,17 @@ ai-keep-awake --version
 | `--dry-run` | Shows the copy, the change to `settings.json` as a diff, and the task; changes nothing |
 | `--settings PATH` | Another Claude Code settings file |
 | `--install-dir PATH` | Another folder for the programs, for this run. To make it stick, set `install_dir` in the settings too, so `status` and `autostart` look there |
-| `--no-autostart` | Only the programs and the hooks; no task |
+| `--no-autostart` | Only the programs and the hooks; no task. A watcher already running this install's program is still restarted on the new one |
+| `--hooks-only` | Only the hooks: put them back in `settings.json` |
+
+**Inside Claude Code** (`CLAUDECODE` set, as Claude Code does in the shells it runs), `install` does everything but
+register the logon task, and prints the one command for you to run at a console: Claude Code's permission check
+blocks registering it, rightly. A watcher task that's already registered is restarted on the new programs.
+
+**`status --json`** gives the same facts as `status` for programs to read (`format` 1; times in Unix seconds):
+`hooks` (installed, events), `watcher` (running, its task), `request` (held, why, from the watcher's state file),
+`paused`, `manual`, `leases`, `power`, `lock`, `windows` and `rules`. The text lines stay as they are, since
+scripts read them too.
 
 Exit codes: 0 done, 1 failed, 2 bad arguments or settings, 3 a second watcher (it doesn't start).
 

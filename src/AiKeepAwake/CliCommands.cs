@@ -17,6 +17,8 @@ public static partial class Cli
             Print(host.Err, error.Message);
             return 2;
         }
+        if (options.HooksOnly)
+            return HooksOnly(options, path, report, config, hookExe, host);
         var copy = !Programs.RunningFrom(host.ProgramDir, config.InstallDir);
         var missing = copy ? Programs.Missing(host.ProgramDir) : [];
         if (missing.Count > 0)
@@ -25,15 +27,23 @@ public static partial class Cli
             return 1;
         }
         var (exe, taskArgs) = AutoStart.Command(Install.HookExe(config.InstallDir), config.Path);
+        // Inside Claude Code the logon task is left for the person (its permission check blocks registering one).
+        var insideClaude = !options.NoAutostart && InsideClaudeCode(host);
+        var register = !options.NoAutostart && !insideClaude;
+        // Not registering, a watcher already running this install's program is still stopped before the copy and
+        // started again after, so it runs the new version rather than the old one until the next logon.
+        var restart = copy && !register && TaskRunsHere(host, config);
 
         if (options.DryRun)
         {
             Print(host.Out, copy
                 ? $"Would copy {string.Join(" and ", Programs.Names)} to {config.InstallDir}"
-                  + (options.NoAutostart ? "." : ", stopping the watcher first.")
+                  + (register ? ", stopping the watcher first." : restart ? ", stopping the watcher first and starting it again after." : ".")
                 : $"Running from {config.InstallDir} already; nothing to copy.");
             Print(host.Out, report.Changed ? report.Diff : $"{path}: the hooks are already in place; no change.");
-            if (!options.NoAutostart)
+            if (insideClaude)
+                Print(host.Out, $"\nInside Claude Code, so it wouldn't register the logon task; it would print the command for you to run.");
+            if (register)
             {
                 Print(host.Out, $"\nWould register the Task Scheduler task '{AutoStart.TaskName}' (at every logon, kept running, and "
                                 + $"started now):\n  {exe} {WinBackground.Shell.ListToCommandLine(taskArgs)}");
@@ -53,7 +63,7 @@ public static partial class Cli
         {
             if (copy)
             {
-                if (!options.NoAutostart)
+                if (register || restart)
                 {
                     try
                     {
@@ -99,7 +109,20 @@ public static partial class Cli
             else
                 Print(host.Out, $"The hooks were already in {path}; no change.");
 
-            if (!options.NoAutostart)
+            if (restart && stopped)
+            {
+                stopped = false;
+                StartAgain(task, host, planned: true);
+            }
+            if (insideClaude)
+            {
+                var registered = restart || TaskRunsHere(host, config);
+                Print(host.Out, registered
+                    ? $"Inside Claude Code, so the logon task was left as it is; it's registered already ('{AutoStart.TaskName}')."
+                    : "Inside Claude Code, so the logon task is left for you (Claude Code's permission check blocks registering it). "
+                      + $"To start the watcher at every logon, run this yourself at a console:\n  & \"{Path.Combine(config.InstallDir, Install.ConsoleExe)}\" autostart on");
+            }
+            if (register)
             {
                 try
                 {
@@ -130,13 +153,61 @@ public static partial class Cli
     private static bool IsTaskError(Exception error) =>
         error is InvalidOperationException or TimeoutException or IOException or System.ComponentModel.Win32Exception;
 
-    /// <summary>Start the watcher's task again after install stopped it and then failed. Never throws.</summary>
-    private static void StartAgain(WinBackground.ITask task, CliHost host)
+    /// <summary>Whether the watcher's task is registered and runs this install's background program (so an install
+    /// that doesn't register it can still restart it on the new version). If Task Scheduler can't be asked, no.</summary>
+    private static bool TaskRunsHere(CliHost host, Config config)
+    {
+        try
+        {
+            var info = host.Tasks(AutoStart.TaskName).Status();
+            return info is not null && info.TryGetValue("command", out var command)
+                   && command.Contains(Install.HookExe(config.InstallDir), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception error) when (IsTaskError(error))
+        {
+            return false;
+        }
+    }
+
+    /// <summary>`install --hooks-only`: put the hooks back in settings.json, and nothing else.</summary>
+    private static int HooksOnly(Options options, string path, ChangeReport preview, Config config, string hookExe, CliHost host)
+    {
+        if (options.DryRun)
+        {
+            Print(host.Out, preview.Changed ? preview.Diff : $"{path}: the hooks are already in place; no change.");
+            return 0;
+        }
+        ChangeReport report;
+        try
+        {
+            report = Install.Change(path, s => Install.WithOurs(s, config, hookExe));
+        }
+        catch (Exception error) when (error is SettingsError or IOException or UnauthorizedAccessException)
+        {
+            Print(host.Err, error.Message);
+            return 2;
+        }
+        Print(host.Out, report.Changed
+            ? $"Hooks added to {path} ({Install.Events.Length} events)." + (report.Backup is not null ? $" Backup: {report.Backup}" : "")
+            : $"The hooks were already in {path}; no change.");
+        if (!File.Exists(hookExe))
+            Print(host.Out, $"{hookExe} isn't there, so the hooks can't run yet: run the full install.");
+        return 0;
+    }
+
+    /// <summary>Start the watcher's task again after install stopped it: planned (an upgrade that doesn't register
+    /// the task), or because what came after failed. Never throws.</summary>
+    private static void StartAgain(WinBackground.ITask task, CliHost host, bool planned = false)
     {
         try
         {
             if (task.Start())
-                Print(host.Err, "The watcher was started again, as it was.");
+            {
+                if (planned)
+                    Print(host.Out, "The watcher was started again, on the new programs.");
+                else
+                    Print(host.Err, "The watcher was started again, as it was.");
+            }
         }
         catch (Exception error) when (IsTaskError(error))
         {
