@@ -895,6 +895,8 @@ internal static unsafe partial class TrayWindow
         y += S(30);
 
         Line(view.Footer, fontSmall, theme.Secondary, S(16), left);
+        if (view.FooterNote is { } note)
+            Line(note, fontSmall, theme.Secondary, S(16), left);
         var x = left;
         foreach (var (text, id) in new[] { ("Full status", FullStatus), ("Log", OpenLog), ("Settings file", SettingsFile) })
         {

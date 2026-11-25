@@ -60,6 +60,9 @@ public sealed record TrayView
     public bool PausedOn { get; init; }
     public string PauseButton { get; init; } = "Pause";
     public string Footer { get; init; } = "";
+
+    /// <summary>A line under the footer when another installer manages it: "Updated with right-hand".</summary>
+    public string? FooterNote { get; init; }
     public string? ReleaseLine { get; init; }
     public string? ReleaseUrl { get; init; }
 
@@ -173,9 +176,9 @@ public sealed record TrayView
         var footer = $"Watcher {(facts.WatcherRunning ? "running" : "not running")}. "
                      + (facts.HookEvents > 0 ? $"Hooks on {facts.HookEvents} events." : "No hooks.")
                      + $" v{facts.Version}";
-        string? releaseLine = null, releaseUrl = null;
+        string? releaseLine = null, releaseUrl = null, footerNote = null;
         if (facts.Install?.ManagedByRightHand == true)
-            footer += " (updated with right-hand)";
+            footerNote = "Updated with right-hand, which decides the version";
         else if (facts.Release is { } release && ReleaseCheck.Newer(release.Version, facts.Version))
             (releaseLine, releaseUrl) = ($"{release.Version} is available", release.Url);
 
@@ -196,6 +199,7 @@ public sealed record TrayView
             PausedOn = paused,
             PauseButton = paused ? "Resume" : "Pause",
             Footer = footer,
+            FooterNote = footerNote,
             ReleaseLine = releaseLine,
             ReleaseUrl = releaseUrl,
         };

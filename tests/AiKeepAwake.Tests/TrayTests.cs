@@ -139,7 +139,9 @@ public class TrayViewTests
         Assert.Equal(release.Url, view.ReleaseUrl);
         var managed = TrayView.From(Facts(release: release, install: new InstallRecord("1.2.0", null, InstallRecord.RightHand, null)));
         Assert.Null(managed.ReleaseLine);
-        Assert.EndsWith("(updated with right-hand)", managed.Footer);
+        Assert.Equal("Updated with right-hand, which decides the version", managed.FooterNote);
+        Assert.Equal("Watcher running. Hooks on 7 events. v1.2.0", managed.Footer);
+        Assert.Null(view.FooterNote);
         Assert.Null(TrayView.From(Facts(release: release with { Version = "1.2.0" })).ReleaseLine);
     }
 
