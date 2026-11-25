@@ -310,6 +310,7 @@ public class ShortcutTests : Temp
         Native.WriteShortcut(link, target, "--show", Folder, "Keeps the laptop awake", target, WindowsDesktop.AppId);
         Assert.True(File.Exists(link));
         Assert.Equal(target, Native.ShortcutTarget(link));
-        Assert.Contains(WindowsDesktop.AppId, System.Text.Encoding.Unicode.GetString(File.ReadAllBytes(link)));
+        // UTF-16 in the property store, at whatever byte offset it lands: search the bytes, not a decoded string.
+        Assert.True(File.ReadAllBytes(link).AsSpan().IndexOf(System.Text.Encoding.Unicode.GetBytes(WindowsDesktop.AppId)) >= 0);
     }
 }
