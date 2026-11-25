@@ -45,6 +45,13 @@ public static partial class Cli
                           : unread is not null
                               ? $"task '{AutoStart.TaskName}' couldn't be read ({unread})"
                               : "no logon task (ai-keep-awake install)"));
+        var desktop = host.Desktop;
+        var trayRunning = Tray.Running(config);
+        var trayAtLogon = TrayRunEntry(desktop, config);
+        Print(output, $"Tray:       {(trayRunning ? "running" : "not running")}; {(trayAtLogon ? "starts at logon" : "not started at logon")}"
+                      + (InstallRecord.Read(config) is { } record
+                          ? $"; installed {(record.RemovedByPerson ? "then removed by you" : $"by {record.ManagedBy}")}"
+                          : ""));
 
         JsonObject state = [];
         try

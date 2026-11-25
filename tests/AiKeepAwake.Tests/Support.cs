@@ -174,3 +174,52 @@ public static class Fake
         long? inactivity = null) =>
         new(true, sleep, "test", display, signIn, "test", screensaver ?? Saver(), inactivity);
 }
+
+/// <summary>The Run key, Settings > Apps, the Start menu and the tray, as a test sees them: nothing real is touched.</summary>
+public sealed class FakeDesktop : IDesktop
+{
+    public string? Run { get; set; }
+    public AppsEntry? Apps { get; set; }
+    public string? AppsLocation { get; set; }
+    public (string Target, string Args)? Shortcut { get; set; }
+    public HashSet<string> TraysRunning { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> Calls { get; } = [];
+    public bool FromExplorer { get; set; }
+    public string? Version { get; set; }
+
+    public string? RunEntry() => Run;
+    public void SetRunEntry(string command) { Calls.Add("run on"); Run = command; }
+    public bool RemoveRunEntry() { Calls.Add("run off"); var was = Run is not null; Run = null; return was; }
+
+    public string? AppsEntryLocation() => Apps?.InstallLocation ?? AppsLocation;
+    public void SetAppsEntry(AppsEntry entry) { Calls.Add("apps on"); Apps = entry; }
+    public bool RemoveAppsEntry() { Calls.Add("apps off"); var was = Apps is not null; Apps = null; return was; }
+
+    public string ShortcutPath => @"C:\fake\Start Menu\Programs\ai-keep-awake.lnk";
+    public void WriteShortcut(string target, string args, string workingDir, string description, string icon)
+    {
+        Calls.Add("shortcut on");
+        Shortcut = (target, args);
+    }
+    public bool RemoveShortcut() { Calls.Add("shortcut off"); var was = Shortcut is not null; Shortcut = null; return was; }
+
+    public bool TrayRunning(string installDir) => TraysRunning.Contains(PyPath.Pure(installDir));
+    public bool StopTray(string installDir)
+    {
+        Calls.Add("tray stop");
+        return TraysRunning.Remove(PyPath.Pure(installDir));
+    }
+
+    public int Start(string exe, IReadOnlyList<string> args, string? workingDir)
+    {
+        Calls.Add($"start {Path.GetFileName(exe)}");
+        if (Path.GetFileName(exe) == Install.TrayExe)
+            TraysRunning.Add(PyPath.Pure(Path.GetDirectoryName(exe)!));
+        return 4242;
+    }
+
+    public void Warm(string exe) => Calls.Add($"warm {Path.GetFileName(exe)}");
+    public string? VersionOf(string exe) => Version;
+    public bool StartedFromExplorer() => FromExplorer;
+    public void RemoveLater(string installDir) => Calls.Add("remove later");
+}

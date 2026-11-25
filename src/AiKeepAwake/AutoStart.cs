@@ -23,11 +23,15 @@ public static class AutoStart
         (exe, ["--config", PyPath.Resolve(configPath), "watch"]);
 }
 
-/// <summary>Copying the two programs into the install folder, so the hooks and the task don't depend on where
+/// <summary>Copying the three programs into the install folder, so the hooks and the task don't depend on where
 /// the download was unzipped, and an upgrade is "run the new one's install".</summary>
 public static class Programs
 {
-    public static readonly string[] Names = [Install.ConsoleExe, Install.BackgroundExe];
+    public static readonly string[] Names = [Install.ConsoleExe, Install.BackgroundExe, Install.TrayExe];
+
+    /// <summary>The names as a sentence: "a, b and c".</summary>
+    public static string Listed(IReadOnlyList<string> names) =>
+        names.Count <= 1 ? string.Join("", names) : $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}";
 
     /// <summary>Whether the running program is the installed copy (so there's nothing to copy).</summary>
     public static bool RunningFrom(string programDir, string installDir) => PyPath.Same(programDir, installDir);
@@ -36,7 +40,7 @@ public static class Programs
     public static List<string> Missing(string programDir) =>
         Names.Where(name => !File.Exists(Path.Combine(programDir, name))).ToList();
 
-    /// <summary>Copy both programs into installDir, replacing older copies, even while one is running.
+    /// <summary>Copy the programs into installDir, replacing older copies, even while one is running.
     ///
     /// Every hook call runs the installed ai-keep-awake-background.exe, from every open session and every
     /// headless run, and a running exe can't be overwritten (nor can one Defender is scanning). It can be

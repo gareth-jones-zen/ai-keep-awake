@@ -18,12 +18,17 @@ public static partial class Cli
                 --dry-run                        show the copy, the change to settings.json and the task; change nothing
                 --settings PATH                  another Claude Code settings file
                 --install-dir PATH               another folder for the programs
-                --no-autostart                   only the programs and the hooks
+                --no-autostart                   only the programs, the hooks and the Start menu and Settings > Apps entries
                 --hooks-only                     only the hooks (put them back in settings.json)
-            ai-keep-awake uninstall          take out exactly this tool's hooks, and remove the watcher's task
-                --dry-run                        show the change to settings.json and the task; change nothing
+                --managed-by WHO                 who installed it (right-hand, when the kit does); recorded in install.json
+            ai-keep-awake uninstall          take out its hooks, its task and tray, its Start menu and Settings > Apps
+                                             entries, and its programs
+                --dry-run                        show what it would remove; change nothing
                 --settings PATH                  another Claude Code settings file
-                --no-autostart                   leave the watcher's task alone
+                --no-autostart                   leave the watcher's task (and so the programs) alone
+                --purge                          delete the settings file, the log and the state file too
+                --interactive                    ask first, and wait for Enter at the end (what Settings > Apps runs)
+                --managed-by WHO                 who's removing it (right-hand: not recorded as the person's choice)
             ai-keep-awake status             hooks, watcher, leases, the power request, and the lock point from Windows
                 --json                           the same, as JSON
             ai-keep-awake awake 1h|2h|30m|off    keep the laptop awake by hand for that long (as a Claude session would be:
@@ -63,6 +68,9 @@ public static partial class Cli
         public bool NoAutostart;
         public bool HooksOnly;
         public bool Json;
+        public bool Purge;
+        public bool Interactive;
+        public string? ManagedBy;
         public string Action = "";
     }
 
@@ -72,6 +80,8 @@ public static partial class Cli
     public static int Run(IReadOnlyList<string> argv, CliHost? host = null)
     {
         host ??= new CliHost();
+        if (argv.Count > 0 && argv[0] == RemoveProgramsCommand)
+            return RemoveProgramsLater(argv);
         Options options;
         try
         {
@@ -109,7 +119,7 @@ public static partial class Cli
 
         return options.Command switch
         {
-            "watch" => Watcher.Run(config, WinBackground.Logger.Create(config.LogFile, host.LogEcho), host.Notify, host.System()),
+            "watch" => Watcher.Run(config, WinBackground.Logger.Create(config.LogFile, host.LogEcho), Notice.Route(config, host.Notify), host.System()),
             "install" => InstallCommand(options, config, host),
             "uninstall" => UninstallCommand(options, config, host),
             "autostart" => AutostartCommand(options.Action, config, host),
@@ -172,6 +182,13 @@ public static partial class Cli
                     case "--dry-run": options.DryRun = true; continue;
                     case "--no-autostart": options.NoAutostart = true; continue;
                     case "--hooks-only" when options.Command == "install": options.HooksOnly = true; continue;
+                    case "--purge" when options.Command == "uninstall": options.Purge = true; continue;
+                    case "--interactive" when options.Command == "uninstall": options.Interactive = true; continue;
+                    case "--managed-by":
+                        if (++j >= rest.Count)
+                            throw new UsageError($"argument {arg}: expected one argument");
+                        options.ManagedBy = ManagedBy(rest[j]);
+                        continue;
                     case "--settings" or "--install-dir":
                         if (++j >= rest.Count)
                             throw new UsageError($"argument {arg}: expected one argument");
@@ -189,6 +206,11 @@ public static partial class Cli
                 if (arg.StartsWith("--install-dir=", StringComparison.Ordinal))
                 {
                     options.InstallDir = arg["--install-dir=".Length..];
+                    continue;
+                }
+                if (arg.StartsWith("--managed-by=", StringComparison.Ordinal))
+                {
+                    options.ManagedBy = ManagedBy(arg["--managed-by=".Length..]);
                     continue;
                 }
             }
@@ -217,6 +239,15 @@ public static partial class Cli
         if (extra.Count > 0)
             throw new UsageError($"unrecognized arguments: {string.Join(' ', extra)}");
         return options;
+    }
+
+    /// <summary>A --managed-by value: a short name such as right-hand or person.</summary>
+    private static string ManagedBy(string value)
+    {
+        var name = value.Trim().ToLowerInvariant();
+        if (name.Length == 0 || name.Length > 40 || !name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.'))
+            throw new UsageError($"argument --managed-by: '{value}' isn't a name such as right-hand");
+        return name;
     }
 
     /// <summary>A line as Python's print() wrote it on Windows.</summary>

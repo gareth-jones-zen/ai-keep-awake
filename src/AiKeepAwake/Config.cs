@@ -23,6 +23,7 @@ public sealed class ConfigError(string message) : Exception(message);
 ///     state_file = "%LOCALAPPDATA%/ai-keep-awake/state.json"
 ///     claude_settings = "~/.claude/settings.json"   # where `install` puts the hooks
 ///     install_dir = "%LOCALAPPDATA%/Programs/ai-keep-awake"   # where `install` copies the programs
+///     start_menu = true                       # `install` adds it to the Start menu and Settings > Apps
 ///
 /// Paths may use ~ and %VARIABLES%; relative paths are relative to the settings file. After changing the lease
 /// lengths, leases_dir or install_dir, run `ai-keep-awake install` again: the hooks carry them.</summary>
@@ -46,13 +47,14 @@ public sealed class Config
         # state_file = "%LOCALAPPDATA%/ai-keep-awake/state.json"
         # claude_settings = "~/.claude/settings.json"
         # install_dir = "%LOCALAPPDATA%/Programs/ai-keep-awake"
+        # start_menu = true           # add it to the Start menu and Settings > Apps
 
         """;
 
     private static readonly string[] Known =
     [
         "reason", "lease_minutes", "background_lease_minutes", "unattended_hours", "mains_only", "lock", "check_seconds",
-        "check_pid", "leases_dir", "log_file", "state_file", "claude_settings", "install_dir",
+        "check_pid", "leases_dir", "log_file", "state_file", "claude_settings", "install_dir", "start_menu",
     ];
 
     /// <summary>The settings with every default, for a settings file at path (which needn't exist).</summary>
@@ -85,6 +87,9 @@ public sealed class Config
 
     public double CheckSeconds { get; set; } = 15;
     public bool CheckPid { get; set; } = true;
+
+    /// <summary>Whether install adds it to the Start menu and Settings > Apps (false: a copy for testing, or portable).</summary>
+    public bool StartMenu { get; set; } = true;
     public string LeasesDir { get; set; }
     public string LogFile { get; set; }
     public string StateFile { get; set; }
@@ -160,6 +165,9 @@ public sealed class Config
                     break;
                 case "check_pid":
                     config.CheckPid = value as bool? ?? throw new ConfigError($"{full}: check_pid must be true or false.");
+                    break;
+                case "start_menu":
+                    config.StartMenu = value as bool? ?? throw new ConfigError($"{full}: start_menu must be true or false.");
                     break;
                 case "lock":
                     config.Lock = value;

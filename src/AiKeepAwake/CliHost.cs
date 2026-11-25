@@ -25,4 +25,13 @@ public sealed class CliHost
 
     public Func<Stream>? Stdin { get; init; }
     public Func<double> Clock { get; init; } = Hook.Now;
+
+    /// <summary>The local time, for install.json and the Settings > Apps entry.</summary>
+    public Func<DateTime> Now { get; init; } = () => DateTime.Now;
+
+    /// <summary>The Run key, Settings > Apps, the Start menu, the tray's process.</summary>
+    public IDesktop Desktop { get; init; } = new WindowsDesktop();
+
+    /// <summary>Where the guided install and an interactive uninstall read the person's answers.</summary>
+    public TextReader In { get; init; } = Console.In;
 }

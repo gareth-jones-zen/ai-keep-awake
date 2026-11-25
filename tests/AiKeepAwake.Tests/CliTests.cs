@@ -6,6 +6,7 @@ namespace AiKeepAwake.Tests;
 public class CliTests : Temp
 {
     private readonly FakeTasks tasks = new();
+    private readonly FakeDesktop desktop = new();
     private readonly string dist;
     private readonly string settings;
     private readonly string installDir;
@@ -19,6 +20,7 @@ public class CliTests : Temp
         Directory.CreateDirectory(dist);
         File.WriteAllText(Path.Combine(dist, Install.ConsoleExe), "console");
         File.WriteAllText(Path.Combine(dist, Install.BackgroundExe), "background");
+        File.WriteAllText(Path.Combine(dist, Install.TrayExe), "tray");
         settings = Path.Combine(Folder, "settings.json");
         File.WriteAllText(settings, "{\"model\": \"opus\"}\n");
         installDir = Path.Combine(Folder, "Local", "Programs", "ai-keep-awake");   // the default, from the fake environment
@@ -40,6 +42,7 @@ public class CliTests : Temp
             Clock = () => Now,
             CopyPause = TimeSpan.Zero,
             Stdin = () => new MemoryStream("{\"session_id\": \"s1\"}"u8.ToArray()),
+            Desktop = desktop,
         };
         return Cli.Run(["--config", configPath, .. args], host);
     }
@@ -88,6 +91,7 @@ public class CliTests : Temp
         Directory.CreateDirectory(installDir);
         File.Copy(Path.Combine(dist, Install.ConsoleExe), Path.Combine(installDir, Install.ConsoleExe));
         File.Copy(Path.Combine(dist, Install.BackgroundExe), Path.Combine(installDir, Install.BackgroundExe));
+        File.Copy(Path.Combine(dist, Install.TrayExe), Path.Combine(installDir, Install.TrayExe));
         Assert.Equal(0, RunFrom(installDir + @"\", "install", "--settings", settings));
         Assert.DoesNotContain("stop ai-keep-awake watch", tasks.Calls);
         Assert.DoesNotContain("Copied", output.ToString());
@@ -100,7 +104,7 @@ public class CliTests : Temp
         tasks[AutoStart.OldTaskName].Exists = true;
         Assert.Equal(0, Run("install", "--settings", settings, "--dry-run"));
         var text = output.ToString();
-        Assert.Contains($"Would copy ai-keep-awake.exe and ai-keep-awake-background.exe to {installDir}, stopping the watcher first.", text);
+        Assert.Contains($"Would copy ai-keep-awake.exe, ai-keep-awake-background.exe and ai-keep-awake-tray.exe to {installDir}, stopping the watcher (and the tray) first.", text);
         Assert.Contains("+            \"command\": \"" + installDir.Replace(@"\", @"\\") + @"\\ai-keep-awake-background.exe" + "\",", text);
         Assert.Contains($"Would register the Task Scheduler task 'ai-keep-awake watch'", text);
         Assert.Contains("Would remove the old task 'claude-keep-awake watch'", text);
@@ -227,7 +231,7 @@ public class CliTests : Temp
     }
 
     [Fact]
-    public void Uninstall_removes_both_tasks_and_leaves_the_programs()
+    public void Uninstall_removes_both_tasks_and_the_programs()
     {
         Run("install", "--settings", settings);
         tasks[AutoStart.OldTaskName].Exists = true;
@@ -235,6 +239,17 @@ public class CliTests : Temp
         Directory.CreateDirectory(LeasesDir);
         Assert.Equal(0, Run("uninstall", "--settings", settings));
         Assert.Equal(["disable ai-keep-awake watch", "disable claude-keep-awake watch"], tasks.Calls);
+        Assert.Contains($"The programs are deleted ({installDir})", output.ToString());
+        Assert.False(Directory.Exists(installDir));
+    }
+
+    [Fact]
+    public void Uninstall_with_no_autostart_leaves_the_task_and_the_programs()
+    {
+        Run("install", "--settings", settings);
+        tasks.Calls.Clear();
+        Assert.Equal(0, Run("uninstall", "--settings", settings, "--no-autostart"));
+        Assert.Empty(tasks.Calls);
         Assert.Contains($"The programs are still in {installDir}", output.ToString());
         Assert.True(File.Exists(Path.Combine(installDir, Install.BackgroundExe)));
     }
@@ -282,7 +297,7 @@ public class CliTests : Temp
     public void Config_creates_the_default_file_once()
     {
         (output, error) = (new StringWriter(), new StringWriter());
-        var host = new CliHost { Out = output, Err = error, Env = Env, Tasks = name => tasks[name] };
+        var host = new CliHost { Out = output, Err = error, Env = Env, Tasks = name => tasks[name], Desktop = desktop };
         Assert.Equal(0, Cli.Run(["config"], host));
         var path = Path.Combine(Folder, "Roaming", "ai-keep-awake", "config.toml");
         Assert.Equal(path + Environment.NewLine, output.ToString());

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>ai-keep-awake-tray</AssemblyName>
+    <RootNamespace>AiKeepAwake.TrayApp</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <ApplicationIcon>..\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AiKeepAwake\AiKeepAwake.csproj" />
+  </ItemGroup>
+</Project>

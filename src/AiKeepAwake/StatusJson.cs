@@ -156,9 +156,28 @@ public static partial class Cli
                 ["lease_minutes"] = config.LeaseMinutes,
                 ["background_lease_minutes"] = config.BackgroundLeaseMinutes,
             },
+            ["tray"] = new JsonObject
+            {
+                ["running"] = Tray.Running(config),
+                ["at_logon"] = TrayRunEntry(host.Desktop, config),
+            },
+            ["install"] = InstallRecord.Read(config)?.ToJson(),
             ["log_file"] = config.LogFile,
             ["state_file"] = config.StateFile,
         };
+    }
+
+    /// <summary>Whether the tray's Run entry is there and runs this install's tray. False if it can't be read.</summary>
+    private static bool TrayRunEntry(IDesktop desktop, Config config)
+    {
+        try
+        {
+            return desktop.RunEntry() is { } run && run.Contains(Tray.Exe(config), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
     }
 
     private static JsonObject TaskObject(IReadOnlyDictionary<string, string> task)

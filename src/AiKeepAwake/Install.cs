@@ -24,6 +24,8 @@ public static class Install
 {
     public const string ConsoleExe = "ai-keep-awake.exe";
     public const string BackgroundExe = "ai-keep-awake-background.exe";
+    public const string TrayExe = "ai-keep-awake-tray.exe";
+    public const string RepoUrl = "https://github.com/gareth-jones-zen/ai-keep-awake";
     /// <summary>Seconds Claude Code gives a hook before killing it. A hook call takes about 40 ms, but the first
     /// run of a newly installed exe waits for Defender's scan (about 6 seconds was measured in the Phase 4 parity
     /// run), and a killed hook shows an error and writes no lease. So well over that.</summary>

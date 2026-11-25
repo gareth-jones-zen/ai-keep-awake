@@ -4,6 +4,7 @@
     <AssemblyName>ai-keep-awake-background</AssemblyName>
     <RootNamespace>AiKeepAwake</RootNamespace>
     <PublishAot>true</PublishAot>
+    <ApplicationIcon>..\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\AiKeepAwake\AiKeepAwake.csproj" />

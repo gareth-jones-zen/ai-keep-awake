@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="src/AiKeepAwake.Background/AiKeepAwake.Background.csproj" />
   <Project Path="src/AiKeepAwake.Console/AiKeepAwake.Console.csproj" />
+  <Project Path="src/AiKeepAwake.Tray/AiKeepAwake.Tray.csproj" />
   <Project Path="src/AiKeepAwake/AiKeepAwake.csproj" />
   <Project Path="tests/AiKeepAwake.Tests/AiKeepAwake.Tests.csproj" />
 </Solution>

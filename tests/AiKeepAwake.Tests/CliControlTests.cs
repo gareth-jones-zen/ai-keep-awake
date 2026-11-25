@@ -39,6 +39,7 @@ public class CliControlTests : Temp
             ProgramDir = dist,
             Clock = () => Now,
             CopyPause = TimeSpan.Zero,
+            Desktop = new FakeDesktop(),
         };
         return Cli.Run(["--config", configPath, .. args], host);
     }
