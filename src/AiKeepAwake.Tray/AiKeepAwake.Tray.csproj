@@ -2,6 +2,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>ai-keep-awake-tray</AssemblyName>
+    <!-- What Windows shows: the tray icons list in Settings, Task Manager, a file's Properties. -->
+    <AssemblyTitle>AI Keep Awake</AssemblyTitle>
+    <Product>AI Keep Awake</Product>
     <RootNamespace>AiKeepAwake.TrayApp</RootNamespace>
     <PublishAot>true</PublishAot>
     <ApplicationIcon>..\app.ico</ApplicationIcon>

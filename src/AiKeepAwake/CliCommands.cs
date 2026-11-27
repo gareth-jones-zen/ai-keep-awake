@@ -237,7 +237,7 @@ public static partial class Cli
         {
             var size = Programs.Names.Select(name => Path.Combine(config.InstallDir, name)).Where(File.Exists).Sum(file => new FileInfo(file).Length);
             desktop.SetAppsEntry(new AppsEntry("ai-keep-awake", Version.Split('-')[0], "Gareth Jones", config.InstallDir, $"{tray},0",
-                $"\"{console}\" uninstall --interactive", (size + 1023) / 1024, DateTime.Now.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture),
+                $"\"{console}\" uninstall --interactive", (size + 1023) / 1024, host.Now().ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture),
                 Description + "."));
             done.Add("Settings > Apps (uninstall it there)");
         }
