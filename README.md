@@ -126,12 +126,12 @@ its tooltip says why:
 
 | Icon | State | Tooltip, for example |
 |---|---|---|
-| Open eye, blue | Keeping the laptop awake for Claude | "ai-keep-awake: awake for 2 Claude Code sessions (on mains). Locks after 10 min idle." |
-| Open eye, blue, with a bar under it | Kept awake by hand | "ai-keep-awake: kept awake by hand until 16:00." |
-| Closed eye, grey | Not needed | "ai-keep-awake: no Claude Code session is working; normal sleep." |
-| Hollow eye, grey | Not keeping awake though Claude is working | "ai-keep-awake: on battery, so not keeping awake" |
-| Hollow eye with a pause mark | Paused | "ai-keep-awake: paused until 15:00; normal sleep." |
-| Hollow eye with an amber dot | Something's wrong | "ai-keep-awake: the watcher isn't running" |
+| Open eye, blue | Keeping the laptop awake for Claude | "Awake for 2 Claude Code sessions (on mains). Locks after 10 min idle." |
+| Open eye, blue, with a bar under it | Kept awake by hand | "Kept awake by hand until 16:00." |
+| Closed eye, grey | Not needed | "No Claude Code session is working; normal sleep." |
+| Hollow eye, grey | Not keeping awake though Claude is working | "On battery, so not keeping awake" |
+| Hollow eye with a pause mark | Paused | "Paused until 15:00; normal sleep." |
+| Hollow eye with an amber dot | Something's wrong | "The watcher isn't running" |
 
 ![The six icons at 16, 20, 24, 32 and 48 px, on a light and a dark taskbar](docs/design/icon/tray-states.png)
 
@@ -139,8 +139,8 @@ its tooltip says why:
 working or background, until when), when it locks and why, **Keep awake now** and **Pause**, **Start at logon**
 (the watcher's task and the tray, together), and links to the full status, the log and the settings file. A
 problem shows in place of the headline with the one thing to do: **Start it** (the watcher), or **Put them back**
-(the hooks, through `install --hooks-only`). **Right-click** for the same controls in a menu, and to close the icon
-(the watcher carries on).
+(the hooks, through `install --hooks-only`). **Right-click** for keeping awake and pausing, **Details** (this window: the full status and the log
+are here), and to close the icon (the watcher carries on).
 
 The window and the menus follow Windows: light or dark, your accent colour, a high contrast theme and the text
 size (Settings > Accessibility), each as soon as you change it. The window has no title bar: **Escape**, Alt+F4

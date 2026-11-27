@@ -97,43 +97,43 @@ public sealed record TrayView
         TrayProblem? problem = null;
         if (!facts.WatcherRunning)
         {
-            (kind, tooltip, header) = (TrayState.Problem, "ai-keep-awake: the watcher isn't running", "ai-keep-awake: the watcher isn't running");
+            (kind, tooltip, header) = (TrayState.Problem, "The watcher isn't running", "The watcher isn't running");
             headline = "Not keeping the laptop awake";
             problem = new TrayProblem("The watcher isn't running.", "Start it", StartWatcher);
         }
         else if (facts.HookEvents == 0)
         {
-            (kind, tooltip, header) = (TrayState.Problem, "ai-keep-awake: its hooks aren't in Claude Code's settings", "ai-keep-awake: no hooks in Claude Code's settings");
+            (kind, tooltip, header) = (TrayState.Problem, "The hooks aren't in Claude Code's settings", "No hooks in Claude Code's settings");
             headline = "Not keeping the laptop awake";
             problem = new TrayProblem("Claude Code's settings don't have its hooks.", "Put them back", PutHooksBack);
         }
         else if (updated is null || now - updated > StaleAfter)
         {
             var at = updated is { } u ? $" since {Control.Clock(u)}" : "";
-            (kind, tooltip, header) = (TrayState.Problem, $"ai-keep-awake: status unknown{at}", $"ai-keep-awake: status unknown{at}");
+            (kind, tooltip, header) = (TrayState.Problem, $"Status unknown{at}", $"Status unknown{at}");
             headline = $"Status unknown{at}";
             problem = new TrayProblem($"The watcher hasn't said what it's doing{at}.", null, null);
         }
         else if (paused)
         {
             var until = facts.Pause!.Until is { } pu ? $"until {Control.Clock(pu)}" : "until you resume";
-            (kind, header) = (TrayState.Paused, $"ai-keep-awake: paused {until}");
-            tooltip = $"ai-keep-awake: paused {until}; normal sleep.";
+            (kind, header) = (TrayState.Paused, $"Paused {until}");
+            tooltip = $"Paused {until}; normal sleep.";
             headline = $"Paused {until}";
             detail.Add(sessions.Count > 0 ? $"Sleeping as normal, though {count} {(sessions.Count == 1 ? "is" : "are")} working" : "Sleeping as normal");
         }
         else if (manual is not null && held)
         {
-            (kind, header) = (TrayState.Manual, $"ai-keep-awake: awake by hand {manualUntil}");
-            tooltip = $"ai-keep-awake: kept awake by hand {manualUntil}.{lockShort}";
+            (kind, header) = (TrayState.Manual, $"Awake by hand {manualUntil}");
+            tooltip = $"Kept awake by hand {manualUntil}.{lockShort}";
             headline = "Keeping the laptop awake by hand";
             detail.Add(sessions.Count > 0 ? $"{Capital(manualUntil)}, and for {count}" : Capital(manualUntil));
             detail.Add(Capital(sinceText));
         }
         else if (sessions.Count > 0 && held)
         {
-            (kind, header) = (TrayState.Awake, $"ai-keep-awake: awake for {(sessions.Count == 1 ? "1 session" : $"{sessions.Count} sessions")}");
-            tooltip = $"ai-keep-awake: awake for {count} ({power}).{lockShort}";
+            (kind, header) = (TrayState.Awake, $"Awake for {(sessions.Count == 1 ? "1 session" : $"{sessions.Count} sessions")}");
+            tooltip = $"Awake for {count} ({power}).{lockShort}";
             headline = "Keeping the laptop awake";
             detail.Add($"{count} {(sessions.Count == 1 ? "is" : "are")} working");
             detail.Add(Capital(sinceText));
@@ -141,10 +141,10 @@ public sealed record TrayView
         else if (sessions.Count > 0 || manual is not null)
         {
             var reason = why == "on battery" ? "on battery" : why.StartsWith("nobody at the laptop", StringComparison.Ordinal) ? "nobody here for a while" : why;
-            (kind, header) = (TrayState.Blocked, $"ai-keep-awake: not keeping awake ({reason})");
-            tooltip = why == "on battery" ? "ai-keep-awake: on battery, so not keeping awake"
-                : why.StartsWith("nobody at the laptop", StringComparison.Ordinal) ? $"ai-keep-awake: nobody here for {UnattendedText(why)}"
-                : $"ai-keep-awake: not keeping awake ({why})";
+            (kind, header) = (TrayState.Blocked, $"Not keeping awake ({reason})");
+            tooltip = why == "on battery" ? "On battery, so not keeping awake"
+                : why.StartsWith("nobody at the laptop", StringComparison.Ordinal) ? $"Nobody here for {UnattendedText(why)}"
+                : $"Not keeping awake ({why})";
             headline = "Not keeping the laptop awake";
             detail.Add(why == "on battery" ? "On battery: it keeps awake on mains only"
                 : why.StartsWith("nobody at the laptop", StringComparison.Ordinal) ? $"Nobody has used the laptop for {UnattendedText(why)}"
@@ -153,8 +153,8 @@ public sealed record TrayView
         }
         else
         {
-            (kind, header) = (TrayState.NotNeeded, "ai-keep-awake: not needed now");
-            tooltip = "ai-keep-awake: no Claude Code session is working; normal sleep.";
+            (kind, header) = (TrayState.NotNeeded, "Not needed now");
+            tooltip = "No Claude Code session is working; normal sleep.";
             headline = "Not needed now";
             detail.Add("No Claude Code session is working; normal sleep");
         }

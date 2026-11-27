@@ -90,9 +90,7 @@ internal static unsafe partial class TrayWindow
         AddAwake(menu);
         AddPause(menu);
         AddSeparator(menu);
-        Add(menu, OpenWindow, "Open ai-keep-awake");
-        Add(menu, FullStatus, "Full status...");
-        Add(menu, OpenLog, "Open the log");
+        Add(menu, OpenWindow, "Details");   // full status and the log are in the window
         AddSeparator(menu);
         Add(menu, CloseTray, "Close the tray icon");
         SetForegroundWindow(hwnd);

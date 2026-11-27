@@ -45,8 +45,8 @@ public class TrayViewTests
     {
         var view = TrayView.From(Facts(State(true, "2 sessions working"), [Session(), Session("s2", @"C:\work\right-hand", bg: true)]));
         Assert.Equal(TrayState.Awake, view.State);
-        Assert.Equal("ai-keep-awake: awake for 2 Claude Code sessions (on mains). Locks after 5 min idle.", view.Tooltip);
-        Assert.Equal("ai-keep-awake: awake for 2 sessions", view.MenuHeader);
+        Assert.Equal("Awake for 2 Claude Code sessions (on mains). Locks after 5 min idle.", view.Tooltip);
+        Assert.Equal("Awake for 2 sessions", view.MenuHeader);
         Assert.Equal("Keeping the laptop awake", view.Headline);
         Assert.Equal(["2 Claude Code sessions are working", $"Since {Control.Clock(Now - 600)}, on mains"], view.Detail);
         Assert.Equal([new SessionRow("my-right-hand", "working", $"until {Control.Clock(Now + 900)}"),
@@ -63,7 +63,7 @@ public class TrayViewTests
     {
         var view = TrayView.From(Facts());
         Assert.Equal(TrayState.NotNeeded, view.State);
-        Assert.Equal("ai-keep-awake: no Claude Code session is working; normal sleep.", view.Tooltip);
+        Assert.Equal("No Claude Code session is working; normal sleep.", view.Tooltip);
     }
 
     [Fact]
@@ -71,10 +71,10 @@ public class TrayViewTests
     {
         var battery = TrayView.From(Facts(State(false, "on battery", mains: false), [Session()]));
         Assert.Equal(TrayState.Blocked, battery.State);
-        Assert.Equal("ai-keep-awake: on battery, so not keeping awake", battery.Tooltip);
+        Assert.Equal("On battery, so not keeping awake", battery.Tooltip);
         var away = TrayView.From(Facts(State(false, "nobody at the laptop for 3.2 hours (the cap is 3)"), [Session()]));
         Assert.Equal(TrayState.Blocked, away.State);
-        Assert.Equal("ai-keep-awake: nobody here for 3.2 hours", away.Tooltip);
+        Assert.Equal("Nobody here for 3.2 hours", away.Tooltip);
         Assert.Equal("Nobody has used the laptop for 3.2 hours", away.Detail[0]);
     }
 
@@ -83,7 +83,7 @@ public class TrayViewTests
     {
         var view = TrayView.From(Facts(State(true, "kept awake by hand"), [Manual()]));
         Assert.Equal(TrayState.Manual, view.State);
-        Assert.Equal($"ai-keep-awake: kept awake by hand until {Control.Clock(Now + 3600)}. Locks after 5 min idle.", view.Tooltip);
+        Assert.Equal($"Kept awake by hand until {Control.Clock(Now + 3600)}. Locks after 5 min idle.", view.Tooltip);
         Assert.True(view.AwakeOn);
         Assert.Equal($"Stop keeping awake (until {Control.Clock(Now + 3600)})", view.AwakeButton);
         Assert.Empty(view.Sessions);
@@ -96,7 +96,7 @@ public class TrayViewTests
     {
         var view = TrayView.From(Facts(State(false, "paused"), [Session()], new Pause(Now + 1800, Now)));
         Assert.Equal(TrayState.Paused, view.State);
-        Assert.Equal($"ai-keep-awake: paused until {Control.Clock(Now + 1800)}; normal sleep.", view.Tooltip);
+        Assert.Equal($"Paused until {Control.Clock(Now + 1800)}; normal sleep.", view.Tooltip);
         Assert.True(view.PausedOn);
         Assert.Equal("Resume", view.PauseButton);
         var resume = TrayView.From(Facts(State(false, "paused"), [], new Pause(null, Now)));
@@ -108,18 +108,18 @@ public class TrayViewTests
     {
         var stopped = TrayView.From(Facts(State(true, "1 session working"), [Session()], running: false));
         Assert.Equal(TrayState.Problem, stopped.State);
-        Assert.Equal("ai-keep-awake: the watcher isn't running", stopped.Tooltip);
+        Assert.Equal("The watcher isn't running", stopped.Tooltip);
         Assert.Equal(TrayView.StartWatcher, stopped.Problem!.ActionId);
         Assert.Equal("Start it", stopped.Problem.Action);
         Assert.Equal("Watcher not running. Hooks on 7 events. v1.2.0", stopped.Footer);
 
         var hooks = TrayView.From(Facts(hooks: 0));
-        Assert.Equal("ai-keep-awake: its hooks aren't in Claude Code's settings", hooks.Tooltip);
+        Assert.Equal("The hooks aren't in Claude Code's settings", hooks.Tooltip);
         Assert.Equal(TrayView.PutHooksBack, hooks.Problem!.ActionId);
 
         var stale = TrayView.From(Facts(State(true, "1 session working", updated: Now - 600)));
         Assert.Equal(TrayState.Problem, stale.State);
-        Assert.Equal($"ai-keep-awake: status unknown since {Control.Clock(Now - 600)}", stale.Tooltip);
+        Assert.Equal($"Status unknown since {Control.Clock(Now - 600)}", stale.Tooltip);
         Assert.Null(stale.Problem!.ActionId);
     }
 
