@@ -8,7 +8,9 @@ internal static unsafe partial class Win32
     internal const uint WM_DESTROY = 0x0002, WM_SIZE = 0x0005, WM_ACTIVATE = 0x0006, WM_PAINT = 0x000F, WM_CLOSE = 0x0010,
         WM_ERASEBKGND = 0x0014, WM_SETTINGCHANGE = 0x001A, WM_SETCURSOR = 0x0020, WM_KEYDOWN = 0x0100, WM_COMMAND = 0x0111,
         WM_TIMER = 0x0113, WM_MOUSEMOVE = 0x0200, WM_LBUTTONUP = 0x0202, WM_RBUTTONUP = 0x0205, WM_CONTEXTMENU = 0x007B,
-        WM_DPICHANGED = 0x02E0, WM_NULL = 0x0000, WM_MOUSELEAVE = 0x02A3, WM_APP = 0x8000;
+        WM_DPICHANGED = 0x02E0, WM_NULL = 0x0000, WM_MOUSELEAVE = 0x02A3, WM_APP = 0x8000, WM_LBUTTONDOWN = 0x0201,
+        WM_SYSCOLORCHANGE = 0x0015, WM_THEMECHANGED = 0x031A, WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320, WM_DRAWITEM = 0x002B,
+        WM_MEASUREITEM = 0x002C, WM_MENUCHAR = 0x0120;
     internal const uint NIN_SELECT = 0x0400, NIN_KEYSELECT = 0x0401, NIN_BALLOONUSERCLICK = 0x0405;
     internal const uint NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4;
     internal const uint NIF_MESSAGE = 1, NIF_ICON = 2, NIF_TIP = 4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
@@ -17,14 +19,23 @@ internal static unsafe partial class Win32
     internal const uint WS_POPUP = 0x80000000, WS_CAPTION = 0x00C00000, WS_SYSMENU = 0x00080000, WS_CLIPCHILDREN = 0x02000000;
     internal const uint WS_EX_TOOLWINDOW = 0x80, WS_EX_TOPMOST = 0x8;
     internal const int SW_HIDE = 0, SW_SHOW = 5;
-    internal const uint MF_STRING = 0, MF_GRAYED = 1, MF_DISABLED = 2, MF_CHECKED = 8, MF_POPUP = 0x10, MF_SEPARATOR = 0x800;
+    internal const uint MF_STRING = 0, MF_GRAYED = 1, MF_DISABLED = 2, MF_CHECKED = 8, MF_POPUP = 0x10, MF_SEPARATOR = 0x800,
+        MF_OWNERDRAW = 0x100;
+    internal const uint ODT_MENU = 1, ODS_SELECTED = 1, MIM_BACKGROUND = 2, MIM_APPLYTOSUBMENUS = 0x80000000, MSAA_MENU_SIG = 0xAA0DF00D;
+    internal const int MNC_EXECUTE = 2, MNC_SELECT = 3;
     internal const uint TPM_RIGHTBUTTON = 2, TPM_RETURNCMD = 0x100, TPM_BOTTOMALIGN = 0x20, TPM_RIGHTALIGN = 8, TPM_TOPALIGN = 0;
-    internal const uint DT_LEFT = 0, DT_CENTER = 1, DT_VCENTER = 4, DT_SINGLELINE = 0x20, DT_NOPREFIX = 0x800, DT_END_ELLIPSIS = 0x8000,
+    internal const uint DT_LEFT = 0, DT_CENTER = 1, DT_RIGHT = 2, DT_VCENTER = 4, DT_SINGLELINE = 0x20, DT_WORDBREAK = 0x10, DT_NOPREFIX = 0x800, DT_END_ELLIPSIS = 0x8000,
         DT_CALCRECT = 0x400;
     internal const int TRANSPARENT = 1;
     internal const int IDC_ARROW = 32512, IDC_HAND = 32649;
     internal const uint SWP_NOZORDER = 4, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
-    internal const int VK_ESCAPE = 0x1B;
+    internal const int VK_ESCAPE = 0x1B, VK_TAB = 0x09, VK_RETURN = 0x0D, VK_SPACE = 0x20, VK_SHIFT = 0x10, VK_UP = 0x26, VK_DOWN = 0x28;
+    internal const int COLOR_WINDOW = 5, COLOR_WINDOWTEXT = 8, COLOR_HIGHLIGHT = 13, COLOR_HIGHLIGHTTEXT = 14, COLOR_BTNFACE = 15,
+        COLOR_BTNTEXT = 18, COLOR_HOTLIGHT = 26;
+    internal const uint SPI_GETHIGHCONTRAST = 0x42, HCF_HIGHCONTRASTON = 1;
+    internal const uint DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    internal const int DWMWCP_ROUND = 2;
+    internal const int PS_INSIDEFRAME = 6, NULL_BRUSH = 5;
     internal const uint MONITOR_DEFAULTTONEAREST = 2;
     internal const int SM_CXSMICON = 49;
     internal const uint MB_OK = 0, MB_OKCANCEL = 1, MB_ICONWARNING = 0x30, MB_ICONINFORMATION = 0x40, MB_TOPMOST = 0x40000;
@@ -128,6 +139,46 @@ internal static unsafe partial class Win32
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct MEASUREITEMSTRUCT
+    {
+        public uint CtlType, CtlID, itemID, itemWidth, itemHeight;
+        public nuint itemData;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DRAWITEMSTRUCT
+    {
+        public uint CtlType, CtlID, itemID, itemAction, itemState;
+        public nint hwndItem, hDC;
+        public RECT rcItem;
+        public nuint itemData;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MENUINFO
+    {
+        public uint cbSize, fMask, dwStyle, cyMax;
+        public nint hbrBack;
+        public uint dwContextHelpID;
+        public nuint dwMenuData;
+    }
+
+    /// <summary>What Windows' accessibility reads of an owner-drawn menu item: its item data starts with one.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSAAMENUINFO
+    {
+        public uint dwMSAASignature, cchWText;
+        public char* pszWText;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct HIGHCONTRASTW
+    {
+        public uint cbSize, dwFlags;
+        public nint lpszDefaultScheme;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct NOTIFYICONIDENTIFIER
     {
         public uint cbSize;
@@ -192,6 +243,35 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool AppendMenuW(nint menu, uint flags, nuint id, string? text);
+
+    [LibraryImport("user32.dll", EntryPoint = "AppendMenuW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AppendMenuData(nint menu, uint flags, nuint id, nint data);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetMenuInfo(nint menu, in MENUINFO info);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint SetCapture(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ReleaseCapture();
+
+    [LibraryImport("user32.dll")]
+    internal static partial short GetKeyState(int key);
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetSysColor(int index);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SystemParametersInfoW(uint action, uint param, ref HIGHCONTRASTW contrast, uint update);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetWindowTextW(nint hwnd, string text);
 
     [LibraryImport("user32.dll")]
     internal static partial int TrackPopupMenuEx(nint menu, uint flags, int x, int y, nint hwnd, nint tpm);
@@ -309,6 +389,9 @@ internal static unsafe partial class Win32
 
     [LibraryImport("gdi32.dll")]
     internal static partial nint GetStockObject(int obj);
+
+    [LibraryImport("gdi32.dll")]
+    internal static partial int ExcludeClipRect(nint hdc, int left, int top, int right, int bottom);
 
     [LibraryImport("gdi32.dll")]
     internal static partial nint CreateCompatibleDC(nint hdc);

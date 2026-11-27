@@ -7,7 +7,9 @@ using static AiKeepAwake.TrayApp.Win32;
 namespace AiKeepAwake.TrayApp;
 
 /// <summary>The tray icon and its small window. One window does both jobs: hidden, it receives the icon's messages
-/// (and Explorer's TaskbarCreated, to put the icon back after a restart); shown, it's the window by the clock.
+/// (and Explorer's TaskbarCreated, to put the icon back after a restart); shown, it's the window by the clock: no
+/// title bar, as Windows 11's own are, closed by Escape, Alt+F4 or a click anywhere else. How it looks is in
+/// TrayWindow.Look.cs, and its menus in TrayWindow.Menu.cs.
 ///
 /// It reads what the watcher and the hooks write (state.json, the leases, the pause file) every two seconds, works
 /// out what to show with TrayView, and acts only through the same files and commands as the command line (Control,
@@ -48,20 +50,10 @@ internal static unsafe partial class TrayWindow
     private static string? busy;
     private static string? workerMessage;
     private static uint dpi = 96;
-    private static nint fontNormal, fontBold, fontSmall, fontSymbol;
-    private static readonly List<Item> items = [];
-    private static int? hover;
+    private static string title = "ai-keep-awake";
 
-    private enum Kind { Text, Icon, Button, Link, Check }
-
-    private sealed record Item(Kind Kind, RECT Rect, string Text, int Id = 0, nint Font = 0, uint Color = 0, uint Flags = 0, bool On = false,
-        TrayState State = TrayState.NotNeeded);
-
-    private sealed record Theme(uint Back, uint Text, uint Secondary, uint Accent, uint ButtonBack, uint ButtonBorder, uint ButtonHover, uint Warning);
-
-    private static readonly Theme Light = new(0xFFF9F9F9, 0xFF1A1A1A, 0xFF5C5C5C, 0xFF0067C0, 0xFFFFFFFF, 0xFFD1D1D1, 0xFFF0F0F0, 0xFF9D5D00);
-    private static readonly Theme Dark = new(0xFF202020, 0xFFFFFFFF, 0xFFC5C5C5, 0xFF60CDFF, 0xFF2D2D2D, 0xFF444444, 0xFF383838, 0xFFFCE100);
-    private static Theme theme = Light;
+    /// <summary>A plain popup: Windows rounds its corners and gives it a shadow (Chrome).</summary>
+    private const uint WindowStyle = WS_POPUP, WindowExStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
 
     public static int Run(Config settings, bool show)
     {
@@ -86,12 +78,11 @@ internal static unsafe partial class TrayWindow
             if (RegisterClassExW(wc) == 0)
                 return 1;
         }
-        hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, Tray.WindowClass, "ai-keep-awake", WS_POPUP | WS_CAPTION | WS_SYSMENU,
-            0, 0, 360, 300, 0, 0, instance, 0);
+        hwnd = CreateWindowExW(WindowExStyle, Tray.WindowClass, title, WindowStyle, 0, 0, Width, 300, 0, 0, instance, 0);
         if (hwnd == 0)
             return 1;
         dpi = Math.Max(96, GetDpiForWindow(hwnd));
-        DarkTitle();
+        Chrome();
         Fonts();
         taskbarCreated = RegisterWindowMessageW("TaskbarCreated");
         Refresh();
@@ -199,12 +190,21 @@ internal static unsafe partial class TrayWindow
                     Hide();
                 return 0;
             case WM_CLOSE:
-                Hide();   // the window's x: the tray stays
+                Hide();   // Alt+F4: the window goes, the tray stays
                 return 0;
             case WM_KEYDOWN:
-                if ((int)wParam == VK_ESCAPE)
-                    Hide();
+                Key((int)wParam);
                 return 0;
+            case WM_MEASUREITEM:
+                if (MeasureMenuItem(lParam))
+                    return 1;
+                break;
+            case WM_DRAWITEM:
+                if (DrawMenuItem(lParam))
+                    return 1;
+                break;
+            case WM_MENUCHAR:
+                return MenuChar(wParam, lParam);
             case WM_ERASEBKGND:
                 return 1;
             case WM_PAINT:
@@ -231,17 +231,34 @@ internal static unsafe partial class TrayWindow
                 {
                     var point = cursor;
                     ScreenToClient(hwnd, ref point);
-                    if (HitTest(point.X, point.Y) is not null)
+                    if (ItemAt(point.X, point.Y) is { Kind: Kind.Link })   // a hand for a link, as Windows has it; the arrow for a button
                     {
                         SetCursor(LoadCursorW(0, IDC_HAND));
                         return 1;
                     }
                 }
                 break;
-            case WM_LBUTTONUP:
-                if (HitTest(LoWord(lParam), HiWord(lParam)) is { } id)
-                    Click(id);
+            case WM_LBUTTONDOWN:
+                pressed = HitTest(LoWord(lParam), HiWord(lParam));
+                focusShown = false;
+                if (pressed is not null)
+                {
+                    focus = pressed;
+                    SetCapture(hwnd);
+                }
+                InvalidateRect(hwnd, 0, false);
                 return 0;
+            case WM_LBUTTONUP:
+                {
+                    // A click is a press and a release on the same control: sliding off it lets go.
+                    var was = pressed;
+                    pressed = null;
+                    ReleaseCapture();
+                    InvalidateRect(hwnd, 0, false);
+                    if (was is { } id && HitTest(LoWord(lParam), HiWord(lParam)) == id)
+                        Click(id);
+                    return 0;
+                }
             case WM_DPICHANGED:
                 dpi = (uint)HiWord(wParam);
                 Fonts();
@@ -250,9 +267,11 @@ internal static unsafe partial class TrayWindow
                 if (IsWindowVisible(hwnd))
                     Place();
                 return 0;
-            case WM_SETTINGCHANGE:
+            case WM_SETTINGCHANGE or WM_THEMECHANGED or WM_SYSCOLORCHANGE or WM_DWMCOLORIZATIONCOLORCHANGED:
+                // Light or dark, the accent colour, a high contrast theme, the text size: all take effect at once.
                 ReadTheme();
-                DarkTitle();
+                Chrome();
+                Fonts();
                 iconKey = null;
                 Refresh();
                 return 0;
@@ -263,6 +282,37 @@ internal static unsafe partial class TrayWindow
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ScreenToClient(nint hwnd, ref POINT point);
+
+    /// <summary>The keyboard: Tab and Shift+Tab (or the arrows) go round the controls, Enter or Space presses the
+    /// one in focus, Escape closes the window.</summary>
+    private static void Key(int key)
+    {
+        switch (key)
+        {
+            case VK_ESCAPE:
+                Hide();
+                break;
+            case VK_TAB or VK_DOWN or VK_UP:
+                {
+                    var stops = items.Where(item => item.Id != 0).Select(item => item.Id).ToList();
+                    if (stops.Count == 0)
+                        break;
+                    var back = key == VK_UP || key == VK_TAB && GetKeyState(VK_SHIFT) < 0;
+                    var at = focus is { } id && focusShown ? stops.IndexOf(id) : -1;
+                    focus = stops[at < 0 ? back ? stops.Count - 1 : 0 : (at + (back ? stops.Count - 1 : 1)) % stops.Count];
+                    focusShown = true;
+                    InvalidateRect(hwnd, 0, false);
+                    break;
+                }
+            case VK_RETURN or VK_SPACE:
+                if (focus is { } chosen && items.Any(item => item.Id == chosen))
+                {
+                    focusShown = true;
+                    Click(chosen);
+                }
+                break;
+        }
+    }
 
     // ---- What's shown --------------------------------------------------------------------------------------------
 
@@ -303,6 +353,8 @@ internal static unsafe partial class TrayWindow
             Release = release,
         };
         view = TrayView.From(facts);
+        if (title != view.MenuHeader)
+            SetWindowTextW(hwnd, title = view.MenuHeader);   // what a screen reader says when the window opens
         RenewUntilOff(now);
         UpdateIcon();
         ShowNotice();
@@ -417,95 +469,6 @@ internal static unsafe partial class TrayWindow
         {
             DeleteObject(color);
             DeleteObject(mask);
-        }
-    }
-
-    // ---- The menu --------------------------------------------------------------------------------------------------
-
-    private static void Menu(int x, int y)
-    {
-        var menu = CreatePopupMenu();
-        try
-        {
-            AppendMenuW(menu, MF_STRING | MF_GRAYED, 1, view.MenuHeader);
-            AppendMenuW(menu, MF_SEPARATOR, 0, null);
-            AddAwake(menu);
-            AddPause(menu);
-            AppendMenuW(menu, MF_SEPARATOR, 0, null);
-            AppendMenuW(menu, MF_STRING, OpenWindow, "Open ai-keep-awake");
-            AppendMenuW(menu, MF_STRING, FullStatus, "Full status...");
-            AppendMenuW(menu, MF_STRING, OpenLog, "Open the log");
-            AppendMenuW(menu, MF_SEPARATOR, 0, null);
-            AppendMenuW(menu, MF_STRING, CloseTray, "Close the tray icon");
-            SetForegroundWindow(hwnd);
-            var chosen = TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_BOTTOMALIGN | TPM_RIGHTALIGN, x, y, hwnd, 0);
-            PostMessageW(hwnd, WM_NULL, 0, 0);
-            if (chosen != 0)
-                Command(chosen);
-        }
-        finally
-        {
-            DestroyMenu(menu);
-        }
-    }
-
-    private static void AddAwake(nint menu)
-    {
-        if (view.AwakeOn)
-        {
-            AppendMenuW(menu, MF_STRING, StopAwake, view.AwakeButton);
-            return;
-        }
-        var sub = CreatePopupMenu();
-        AppendMenuW(sub, MF_STRING, AwakeHour, "for 1 hour");
-        AppendMenuW(sub, MF_STRING, AwakeTwo, "for 2 hours");
-        AppendMenuW(sub, MF_STRING, AwakeOff, "until I turn it off");
-        AppendMenuW(menu, MF_POPUP, (nuint)sub, "Keep awake now");
-    }
-
-    private static void AddPause(nint menu)
-    {
-        if (view.PausedOn)
-        {
-            AppendMenuW(menu, MF_STRING, Resume, $"Resume ({view.Headline.ToLowerInvariant()})");
-            return;
-        }
-        var sub = CreatePopupMenu();
-        AppendMenuW(sub, MF_STRING, PauseHour, "for 1 hour");
-        AppendMenuW(sub, MF_STRING, PauseOn, "until I resume");
-        AppendMenuW(menu, MF_POPUP, (nuint)sub, "Pause");
-    }
-
-    /// <summary>A button's own menu, under it.</summary>
-    private static void ButtonMenu(int id)
-    {
-        var item = items.First(i => i.Id == id);
-        var menu = CreatePopupMenu();
-        try
-        {
-            if (id == AwakeMenu)
-            {
-                AppendMenuW(menu, MF_STRING, AwakeHour, "for 1 hour");
-                AppendMenuW(menu, MF_STRING, AwakeTwo, "for 2 hours");
-                AppendMenuW(menu, MF_STRING, AwakeOff, "until I turn it off");
-            }
-            else
-            {
-                AppendMenuW(menu, MF_STRING, PauseHour, "for 1 hour");
-                AppendMenuW(menu, MF_STRING, PauseOn, "until I resume");
-            }
-            var point = new POINT { X = item.Rect.Left, Y = item.Rect.Bottom };
-            ClientToScreen(hwnd, ref point);
-            modal = true;
-            var chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_TOPALIGN, point.X, point.Y, hwnd, 0);
-            modal = false;
-            if (chosen != 0)
-                Command(chosen);
-        }
-        finally
-        {
-            modal = false;
-            DestroyMenu(menu);
         }
     }
 
@@ -746,10 +709,9 @@ internal static unsafe partial class TrayWindow
 
     // ---- The window ------------------------------------------------------------------------------------------------
 
-    private static int S(double value) => (int)Math.Round(value * dpi / 96.0);
-
     private static void Show()
     {
+        (focus, focusShown, pressed) = (null, false, null);
         CheckLogon();
         Refresh();
         Layout();
@@ -762,16 +724,14 @@ internal static unsafe partial class TrayWindow
     {
         ShowWindow(hwnd, SW_HIDE);
         hiddenAt = Environment.TickCount64;
-        hover = null;
+        (hover, pressed) = (null, null);
     }
-
-    private static int contentHeight = 300;
 
     /// <summary>Size the window to its contents and put it by the clock (or where the taskbar is).</summary>
     private static void Place(bool keepPosition = false)
     {
-        var rect = new RECT { Right = S(360), Bottom = contentHeight };
-        AdjustWindowRectExForDpi(ref rect, WS_POPUP | WS_CAPTION | WS_SYSMENU, false, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, dpi);
+        var rect = new RECT { Right = S(Width), Bottom = contentHeight };
+        AdjustWindowRectExForDpi(ref rect, WindowStyle, false, WindowExStyle, dpi);
         int width = rect.Width, height = rect.Height;
         if (keepPosition)
         {
@@ -803,247 +763,4 @@ internal static unsafe partial class TrayWindow
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetWindowRect(nint hwnd, out RECT rect);
-
-    private static void Fonts()
-    {
-        foreach (var font in new[] { fontNormal, fontBold, fontSmall, fontSymbol })
-            if (font != 0)
-                DeleteObject(font);
-        fontNormal = CreateFontW(-S(12), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
-        fontBold = CreateFontW(-S(15), 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
-        fontSmall = CreateFontW(-S(11), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
-        fontSymbol = CreateFontW(-S(10), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI Symbol");
-    }
-
-    private static int TextWidth(string text, nint font)
-    {
-        var dc = CreateCompatibleDC(0);
-        try
-        {
-            var old = SelectObject(dc, font);
-            var rect = new RECT { Right = S(1000), Bottom = S(100) };
-            DrawTextW(dc, text, text.Length, ref rect, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
-            SelectObject(dc, old);
-            return rect.Width;
-        }
-        finally
-        {
-            DeleteDC(dc);
-        }
-    }
-
-    /// <summary>Lay the window out from the view: the headline (or the problem), the sessions, when it locks, the
-    /// two controls, start at logon, and the footer.</summary>
-    private static void Layout()
-    {
-        items.Clear();
-        int left = S(16), right = S(344), y = S(14);
-        var lineHeight = S(18);
-        var top = y;
-        items.Add(new Item(Kind.Icon, new RECT { Left = left, Top = y + S(2), Right = left + S(32), Bottom = y + S(34) }, "", State: view.State));
-        var textLeft = left + S(44);
-        void Line(string text, nint font, uint color, int height, int x0 = -1)
-        {
-            items.Add(new Item(Kind.Text, new RECT { Left = x0 < 0 ? textLeft : x0, Top = y, Right = right, Bottom = y + height }, text, Font: font, Color: color,
-                Flags: DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS));
-            y += height;
-        }
-        Line(view.Headline, fontBold, theme.Text, S(22));
-        if (view.Problem is { } problem)
-        {
-            Line(problem.Text, fontNormal, theme.Warning, lineHeight);
-            if (problem.Action is { } action)
-            {
-                var width = TextWidth(action, fontNormal);
-                items.Add(new Item(Kind.Link, new RECT { Left = textLeft, Top = y, Right = textLeft + width, Bottom = y + lineHeight }, action, ProblemAction, fontNormal));
-                y += lineHeight;
-            }
-        }
-        foreach (var line in view.Detail)
-            Line(line, fontNormal, theme.Secondary, lineHeight);
-        y = Math.Max(y, top + S(40)) + S(10);
-
-        foreach (var row in view.Sessions)
-        {
-            items.Add(new Item(Kind.Text, new RECT { Left = left, Top = y, Right = left + S(150), Bottom = y + lineHeight }, row.Name, Font: fontNormal, Color: theme.Text,
-                Flags: DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS));
-            items.Add(new Item(Kind.Text, new RECT { Left = left + S(160), Top = y, Right = left + S(240), Bottom = y + lineHeight }, row.What, Font: fontNormal, Color: theme.Secondary,
-                Flags: DT_SINGLELINE | DT_NOPREFIX));
-            items.Add(new Item(Kind.Text, new RECT { Left = left + S(244), Top = y, Right = right, Bottom = y + lineHeight }, row.Until, Font: fontNormal, Color: theme.Secondary,
-                Flags: DT_SINGLELINE | DT_NOPREFIX));
-            y += lineHeight;
-        }
-        if (view.MoreSessions > 0)
-            Line($"and {view.MoreSessions} more", fontNormal, theme.Secondary, lineHeight, left);
-        if (view.Sessions.Count > 0)
-            y += S(8);
-        foreach (var line in view.LockLines)
-            Line(line, fontNormal, theme.Secondary, lineHeight, left);
-        if (view.LockLines.Count > 0)
-            y += S(12);
-
-        var half = (right - left - S(8)) / 2;
-        items.Add(new Item(Kind.Button, new RECT { Left = left, Top = y, Right = left + half, Bottom = y + S(32) },
-            view.AwakeOn ? view.AwakeButton : view.AwakeButton + "  ▾", AwakeMenu, fontNormal, On: view.AwakeOn));
-        items.Add(new Item(Kind.Button, new RECT { Left = right - half, Top = y, Right = right, Bottom = y + S(32) },
-            view.PausedOn ? view.PauseButton : view.PauseButton + "  ▾", PauseMenu, fontNormal, On: view.PausedOn));
-        y += S(32) + S(14);
-
-        var logonText = busy ?? (atLogon is null ? "Start at logon (checking...)" : "Start at logon");
-        items.Add(new Item(Kind.Check, new RECT { Left = left, Top = y, Right = left + S(24) + TextWidth(logonText, fontNormal), Bottom = y + S(20) },
-            logonText, AtLogon, fontNormal, On: atLogon == true));
-        y += S(30);
-
-        Line(view.Footer, fontSmall, theme.Secondary, S(16), left);
-        if (view.FooterNote is { } note)
-            Line(note, fontSmall, theme.Secondary, S(16), left);
-        var x = left;
-        foreach (var (text, id) in new[] { ("Full status", FullStatus), ("Log", OpenLog), ("Settings file", SettingsFile) })
-        {
-            var width = TextWidth(text, fontSmall);
-            items.Add(new Item(Kind.Link, new RECT { Left = x, Top = y, Right = x + width, Bottom = y + S(18) }, text, id, fontSmall));
-            x += width + S(16);
-        }
-        y += S(18);
-        if (view.ReleaseLine is { } releaseLine)
-        {
-            var width = TextWidth(releaseLine, fontSmall);
-            items.Add(new Item(Kind.Link, new RECT { Left = left, Top = y + S(4), Right = left + width, Bottom = y + S(22) }, releaseLine, ReleaseLink, fontSmall));
-            y += S(22);
-        }
-        contentHeight = y + S(14);
-    }
-
-    private static int? HitTest(int x, int y)
-    {
-        foreach (var item in items)
-            if (item.Id != 0 && item.Rect.Contains(x, y))
-                return item.Id;
-        return null;
-    }
-
-    private static void Paint()
-    {
-        var paint = BeginPaint(hwnd, out var ps);
-        try
-        {
-            GetClientRect(hwnd, out var client);
-            var dc = CreateCompatibleDC(paint);
-            var bitmap = CreateCompatibleBitmap(paint, client.Width, client.Height);
-            var oldBitmap = SelectObject(dc, bitmap);
-            var back = CreateSolidBrush(Rgb(theme.Back));
-            FillRect(dc, client, back);
-            DeleteObject(back);
-            SetBkMode(dc, TRANSPARENT);
-            foreach (var item in items)
-                Draw(dc, item);
-            BitBlt(paint, 0, 0, client.Width, client.Height, dc, 0, 0, 0x00CC0020);   // SRCCOPY
-            SelectObject(dc, oldBitmap);
-            DeleteObject(bitmap);
-            DeleteDC(dc);
-        }
-        finally
-        {
-            EndPaint(hwnd, ps);
-        }
-    }
-
-    private static void Draw(nint dc, Item item)
-    {
-        var rect = item.Rect;
-        var hovered = hover == item.Id && item.Id != 0;
-        switch (item.Kind)
-        {
-            case Kind.Text:
-                SelectObject(dc, item.Font);
-                SetTextColor(dc, Rgb(item.Color));
-                DrawTextW(dc, item.Text, item.Text.Length, ref rect, item.Flags | DT_LEFT);
-                break;
-            case Kind.Icon:
-                var size = rect.Width;
-                var art = MakeIcon(item.State, size, theme == Dark);
-                DrawIconEx(dc, rect.Left, rect.Top, art, size, size, 0, 0, 3);   // DI_NORMAL
-                DestroyIcon(art);
-                break;
-            case Kind.Link:
-                SelectObject(dc, item.Font);
-                SetTextColor(dc, Rgb(theme.Accent));
-                DrawTextW(dc, item.Text, item.Text.Length, ref rect, DT_SINGLELINE | DT_NOPREFIX | DT_VCENTER);
-                if (hovered)
-                {
-                    var under = CreateSolidBrush(Rgb(theme.Accent));
-                    FillRect(dc, new RECT { Left = rect.Left, Top = rect.Bottom - S(2), Right = rect.Right, Bottom = rect.Bottom - S(1) }, under);
-                    DeleteObject(under);
-                }
-                break;
-            case Kind.Button:
-                {
-                    var fill = CreateSolidBrush(Rgb(item.On ? theme.Accent : hovered ? theme.ButtonHover : theme.ButtonBack));
-                    var pen = CreatePen(0, 1, Rgb(item.On ? theme.Accent : theme.ButtonBorder));
-                    var oldBrush = SelectObject(dc, fill);
-                    var oldPen = SelectObject(dc, pen);
-                    RoundRect(dc, rect.Left, rect.Top, rect.Right, rect.Bottom, S(8), S(8));
-                    SelectObject(dc, oldBrush);
-                    SelectObject(dc, oldPen);
-                    DeleteObject(fill);
-                    DeleteObject(pen);
-                    SelectObject(dc, item.Font);
-                    SetTextColor(dc, Rgb(item.On ? (theme == Dark ? 0xFF000000 : 0xFFFFFFFF) : theme.Text));
-                    var inner = new RECT { Left = rect.Left + S(6), Top = rect.Top, Right = rect.Right - S(6), Bottom = rect.Bottom };
-                    DrawTextW(dc, item.Text, item.Text.Length, ref inner, DT_SINGLELINE | DT_NOPREFIX | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
-                    break;
-                }
-            case Kind.Check:
-                {
-                    var box = new RECT { Left = rect.Left, Top = rect.Top + S(2), Right = rect.Left + S(16), Bottom = rect.Top + S(18) };
-                    var fill = CreateSolidBrush(Rgb(item.On ? theme.Accent : theme.ButtonBack));
-                    var pen = CreatePen(0, 1, Rgb(item.On ? theme.Accent : hovered ? theme.Text : theme.Secondary));
-                    var oldBrush = SelectObject(dc, fill);
-                    var oldPen = SelectObject(dc, pen);
-                    RoundRect(dc, box.Left, box.Top, box.Right, box.Bottom, S(4), S(4));
-                    SelectObject(dc, oldBrush);
-                    SelectObject(dc, oldPen);
-                    DeleteObject(fill);
-                    DeleteObject(pen);
-                    if (item.On)
-                    {
-                        SelectObject(dc, fontSymbol);
-                        SetTextColor(dc, Rgb(theme == Dark ? 0xFF000000 : 0xFFFFFFFF));
-                        DrawTextW(dc, "✓", 1, ref box, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-                    }
-                    var label = new RECT { Left = rect.Left + S(24), Top = rect.Top, Right = rect.Right, Bottom = rect.Bottom };
-                    SelectObject(dc, item.Font);
-                    SetTextColor(dc, Rgb(theme.Text));
-                    DrawTextW(dc, item.Text, item.Text.Length, ref label, DT_SINGLELINE | DT_NOPREFIX | DT_VCENTER);
-                    break;
-                }
-        }
-    }
-
-    // ---- Light and dark --------------------------------------------------------------------------------------------
-
-    private static void ReadTheme() => theme = AppsDark() ? Dark : Light;
-
-    private static bool AppsDark() => Personalize("AppsUseLightTheme") == 0;
-
-    private static bool TaskbarDark() => Personalize("SystemUsesLightTheme") != 1;
-
-    private static int? Personalize(string name)
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return key?.GetValue(name) is int value ? value : null;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-        {
-            return null;
-        }
-    }
-
-    private static void DarkTitle()
-    {
-        var on = theme == Dark ? 1 : 0;
-        DwmSetWindowAttribute(hwnd, 20, on, 4);   // DWMWA_USE_IMMERSIVE_DARK_MODE
-    }
 }

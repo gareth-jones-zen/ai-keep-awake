@@ -121,16 +121,19 @@ Each turns the other off. Keep awake now is a lease of its own kind (`manual.jso
 
 ## The tray icon
 
-The icon shows the state, and its tooltip says why:
+The icon is an eye: open while the laptop is kept awake, closed when it sleeps as normal. It shows the state, and
+its tooltip says why:
 
 | Icon | State | Tooltip, for example |
 |---|---|---|
-| Filled, blue | Keeping the laptop awake for Claude | "ai-keep-awake: awake for 2 Claude Code sessions (on mains). Locks after 10 min idle." |
-| Filled, with clock hands | Kept awake by hand | "ai-keep-awake: kept awake by hand until 16:00." |
-| Grey ring | Not needed | "ai-keep-awake: no Claude Code session is working; normal sleep." |
-| Grey ring with a dot | Not keeping awake though Claude is working | "ai-keep-awake: on battery, so not keeping awake" |
-| Grey ring with a pause mark | Paused | "ai-keep-awake: paused until 15:00; normal sleep." |
-| Grey ring with an amber dot | Something's wrong | "ai-keep-awake: the watcher isn't running" |
+| Open eye, blue | Keeping the laptop awake for Claude | "ai-keep-awake: awake for 2 Claude Code sessions (on mains). Locks after 10 min idle." |
+| Open eye, blue, with a bar under it | Kept awake by hand | "ai-keep-awake: kept awake by hand until 16:00." |
+| Closed eye, grey | Not needed | "ai-keep-awake: no Claude Code session is working; normal sleep." |
+| Hollow eye, grey | Not keeping awake though Claude is working | "ai-keep-awake: on battery, so not keeping awake" |
+| Hollow eye with a pause mark | Paused | "ai-keep-awake: paused until 15:00; normal sleep." |
+| Hollow eye with an amber dot | Something's wrong | "ai-keep-awake: the watcher isn't running" |
+
+![The six icons at 16, 20, 24, 32 and 48 px, on a light and a dark taskbar](docs/design/icon/tray-states.png)
 
 **Click it** for a small window: what it's doing and since when, each Claude Code session (its project folder,
 working or background, until when), when it locks and why, **Keep awake now** and **Pause**, **Start at logon**
@@ -138,6 +141,11 @@ working or background, until when), when it locks and why, **Keep awake now** an
 problem shows in place of the headline with the one thing to do: **Start it** (the watcher), or **Put them back**
 (the hooks, through `install --hooks-only`). **Right-click** for the same controls in a menu, and to close the icon
 (the watcher carries on).
+
+The window and the menus follow Windows: light or dark, your accent colour, a high contrast theme and the text
+size (Settings > Accessibility), each as soon as you change it. The window has no title bar: **Escape**, Alt+F4
+or a click anywhere else closes it. **Tab** and Shift+Tab (or the arrow keys) go round its controls, and Enter or
+Space presses the one in focus.
 
 In the tray, Keep awake now can also be **until I turn it off**: a short lease tied to the tray's process and
 renewed each minute, so closing the tray ends it. The watcher's two notifications (the 3-hour cap; checks
@@ -364,6 +372,7 @@ dotnet publish src/AiKeepAwake.Tray -c Release -r win-x64 -o publish
 | `src/AiKeepAwake` | The hook, watcher, lock point, install and commands; what the tray shows (`TrayView`) and its icons (`IconArt`, which also wrote `src/app.ico`) |
 | `src/AiKeepAwake.Console` | `ai-keep-awake.exe` |
 | `src/AiKeepAwake.Background` | `ai-keep-awake-background.exe` |
-| `src/AiKeepAwake.Tray` | `ai-keep-awake-tray.exe`: hand-written Win32 (the icon, the menu, a window drawn with GDI), so it stays Native AOT with no UI framework |
+| `src/AiKeepAwake.Tray` | `ai-keep-awake-tray.exe`: hand-written Win32 (the icon, owner-drawn menus, a window drawn with GDI), so it stays Native AOT with no UI framework. `AI_KEEP_AWAKE_THEME=light` or `dark` in its environment shows it in that theme whatever Windows is set to, for looking at the other one and for screenshots |
+| `docs/design` | The icon's contact sheets (`icon/`, drawn by the tests), and the notes and screenshots of each pass over the tray's look |
 | `..\background-tools-lib\src\WinBackground` | The Windows calls: power requests, settings, Task Scheduler, notifications, locks, the log (with its own tests, in that repo) |
-| `tests/AiKeepAwake.Tests` | xUnit tests, with fakes for Windows, Claude Code, the desktop (Run key, Settings > Apps, Start menu, tray), GitHub and the clock; a few run the built programs in a second process. After changing `IconArt`, `AI_KEEP_AWAKE_WRITE_ICON=1 dotnet test` writes `src/app.ico` afresh |
+| `tests/AiKeepAwake.Tests` | xUnit tests, with fakes for Windows, Claude Code, the desktop (Run key, Settings > Apps, Start menu, tray), GitHub and the clock; a few run the built programs in a second process. After changing `IconArt`, `AI_KEEP_AWAKE_WRITE_ICON=1 dotnet test` writes `src/app.ico` and the contact sheets in `docs/design/icon` afresh |

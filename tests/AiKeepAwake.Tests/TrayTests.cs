@@ -261,6 +261,65 @@ public class RecordTests : Temp
     }
 }
 
+public class TrayColorTests
+{
+    private const uint LightWindow = 0xFFF9F9F9, DarkWindow = 0xFF2C2C2C, LightText = 0xFF1A1A1A, DarkText = 0xFFFFFFFF;
+
+    /// <summary>Windows' default blue palette, as AccentPalette holds it: R, G, B, A, lightest first.</summary>
+    private static readonly byte[] Blue =
+    [
+        0x99, 0xEB, 0xFF, 0, 0x60, 0xCD, 0xFF, 0, 0x00, 0x91, 0xF8, 0, 0x00, 0x78, 0xD4, 0,
+        0x00, 0x67, 0xC0, 0, 0x00, 0x3E, 0x92, 0, 0x00, 0x1A, 0x68, 0, 0x88, 0x17, 0x98, 0,
+    ];
+
+    [Fact]
+    public void Contrast_is_the_usual_ratio()
+    {
+        Assert.Equal(21, TrayColors.Contrast(TrayColors.Black, TrayColors.White), 3);
+        Assert.Equal(1, TrayColors.Contrast(0xFF808080, 0xFF808080), 3);
+        Assert.Equal(TrayColors.Contrast(LightWindow, LightText), TrayColors.Contrast(LightText, LightWindow), 6);
+        Assert.Equal(4.54, TrayColors.Contrast(0xFF767676, TrayColors.White), 2);   // the well-known lightest grey that passes on white
+    }
+
+    [Fact]
+    public void The_accent_is_a_shade_darker_on_light_and_lighter_on_dark()
+    {
+        Assert.Equal((0xFF0067C0u, 0xFF003E92u), TrayColors.Accent(Blue, dark: false));
+        Assert.Equal((0xFF60CDFFu, 0xFF99EBFFu), TrayColors.Accent(Blue, dark: true));
+        Assert.Null(TrayColors.Accent(null, dark: false));
+        Assert.Null(TrayColors.Accent([1, 2, 3], dark: false));
+    }
+
+    [Fact]
+    public void Text_on_a_fill_is_whichever_of_black_and_white_reads()
+    {
+        Assert.Equal(TrayColors.White, TrayColors.On(0xFF0067C0));
+        Assert.Equal(TrayColors.Black, TrayColors.On(0xFF60CDFF));
+        Assert.Equal(TrayColors.Black, TrayColors.On(0xFFFFD400));   // a yellow accent
+    }
+
+    [Fact]
+    public void A_colour_that_reads_is_left_alone_and_one_that_doesnt_is_moved_only_as_far_as_it_takes()
+    {
+        Assert.Equal(0xFF003E92u, TrayColors.Readable(0xFF003E92, LightWindow, LightText));
+        Assert.Equal(0xFF99EBFFu, TrayColors.Readable(0xFF99EBFF, DarkWindow, DarkText));
+        // Every accent, however pale or deep, ends up readable on both windows.
+        foreach (var accent in new uint[] { 0xFFFFD400, 0xFFFFF4B0, 0xFF101060, 0xFF00CC6A, 0xFFE81123, 0xFF7A7574, 0xFFFFFFFF, 0xFF000000 })
+        {
+            foreach (var (window, text) in new[] { (LightWindow, LightText), (DarkWindow, DarkText) })
+            {
+                var link = TrayColors.Readable(accent, window, text);
+                Assert.True(TrayColors.Contrast(link, window) >= TrayColors.TextContrast, $"{accent:X8} as text on {window:X8}");
+                var fill = TrayColors.Readable(accent, window, text, TrayColors.ShapeContrast);
+                Assert.True(TrayColors.Contrast(fill, window) >= TrayColors.ShapeContrast, $"{accent:X8} as a fill on {window:X8}");
+                Assert.True(TrayColors.Contrast(TrayColors.On(fill), fill) >= TrayColors.TextContrast, $"text on {fill:X8}");
+            }
+        }
+        var pale = TrayColors.Readable(0xFFFFF4B0, LightWindow, LightText);
+        Assert.NotEqual(LightText, pale);   // still some of the accent in it
+    }
+}
+
 public class IconTests
 {
     [Fact]
@@ -297,6 +356,115 @@ public class IconTests
             File.WriteAllBytes(path, drawn);
         Assert.True(File.Exists(path), path);
         Assert.Equal(drawn, File.ReadAllBytes(path));
+    }
+
+    /// <summary>With AI_KEEP_AWAKE_WRITE_ICON=1, the contact sheets in docs/design/icon: every state (a row each, in
+    /// the enum's order) at 16, 20, 24, 32 and 48 px as the taskbar shows them, then the 16 px one six times over,
+    /// on a light taskbar and on a dark one; and the program icon at each of its sizes on both.</summary>
+    [Fact]
+    public void The_contact_sheets_are_drawn()
+    {
+        const uint light = 0xFFF3F3F3, dark = 0xFF202020;
+        int[] sizes = [16, 20, 24, 32, 48];
+        const int gap = 16, row = 96 + gap, zoom = 6;
+        var half = gap + sizes.Sum(size => size + gap) + 16 * zoom + gap;
+        var states = Enum.GetValues<TrayState>();
+        var sheet = new Canvas(half * 2, gap + states.Length * row);
+        sheet.Fill(0, half, light);
+        sheet.Fill(half, half, dark);
+        foreach (var onDark in new[] { false, true })
+        {
+            for (var s = 0; s < states.Length; s++)
+            {
+                int x = (onDark ? half : 0) + gap, y = gap + s * row;
+                foreach (var size in sizes)
+                {
+                    sheet.Blend(IconArt.Render(states[s], size, onDark), size, x, y + (96 - size) / 2);
+                    x += size + gap;
+                }
+                sheet.Blend(IconArt.Render(states[s], 16, onDark), 16, x, y, zoom);
+            }
+        }
+        Assert.Contains(sheet.Pixels, p => p != light && p != dark);
+
+        // The program icon: the images in the .ico itself, read back.
+        int[] appSizes = [16, 20, 24, 32, 40, 48, 64, 256];
+        var appHalf = gap + appSizes.Sum(size => size + gap);
+        var app = new Canvas(appHalf, 2 * (256 + 2 * gap));
+        app.Fill(0, appHalf, light, 0, 256 + 2 * gap);
+        app.Fill(0, appHalf, dark, 256 + 2 * gap, 256 + 2 * gap);
+        var ico = IconArt.Ico(appSizes);
+        for (var band = 0; band < 2; band++)
+        {
+            var x = gap;
+            for (var i = 0; i < appSizes.Length; i++)
+            {
+                var size = appSizes[i];
+                app.Blend(IcoPixels(ico, i, size), size, x, band * (256 + 2 * gap) + gap + (256 - size) / 2);
+                x += size + gap;
+            }
+        }
+
+        if (Environment.GetEnvironmentVariable("AI_KEEP_AWAKE_WRITE_ICON") != "1")
+            return;
+        var folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "design", "icon"));
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "tray-states.png"), IconArt.Png(sheet.Pixels, sheet.Width, sheet.Height));
+        File.WriteAllBytes(Path.Combine(folder, "program-icon.png"), IconArt.Png(app.Pixels, app.Width, app.Height));
+    }
+
+    /// <summary>One image out of an .ico written by IconArt.Ico: a PNG with one unfiltered, zlib-packed block.</summary>
+    private static uint[] IcoPixels(byte[] ico, int index, int size)
+    {
+        var entry = 6 + 16 * index;
+        var png = ico.AsSpan(BitConverter.ToInt32(ico, entry + 12), BitConverter.ToInt32(ico, entry + 8));
+        var packedLength = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png[33..]);   // after the signature and IHDR
+        Assert.Equal("IDAT", System.Text.Encoding.ASCII.GetString(png.Slice(37, 4)));
+        using var packed = new MemoryStream(png.Slice(41, packedLength).ToArray());
+        using var z = new System.IO.Compression.ZLibStream(packed, System.IO.Compression.CompressionMode.Decompress);
+        using var raw = new MemoryStream();
+        z.CopyTo(raw);
+        var bytes = raw.ToArray();
+        Assert.Equal(size * (size * 4 + 1), bytes.Length);
+        var pixels = new uint[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var at = y * (size * 4 + 1) + 1 + x * 4;
+                pixels[y * size + x] = (uint)(bytes[at + 3] << 24 | bytes[at] << 16 | bytes[at + 1] << 8 | bytes[at + 2]);
+            }
+        }
+        return pixels;
+    }
+
+    private sealed class Canvas(int width, int height)
+    {
+        public int Width => width;
+        public int Height => height;
+        public uint[] Pixels { get; } = new uint[width * height];
+
+        public void Fill(int x0, int w, uint color, int y0 = 0, int h = -1)
+        {
+            for (var y = y0; y < (h < 0 ? height : y0 + h); y++)
+                Array.Fill(Pixels, color, y * width + x0, w);
+        }
+
+        /// <summary>Draw ARGB pixels over what's there, each one scale x scale.</summary>
+        public void Blend(uint[] source, int size, int x0, int y0, int scale = 1)
+        {
+            for (var y = 0; y < size * scale; y++)
+            {
+                for (var x = 0; x < size * scale; x++)
+                {
+                    var p = source[y / scale * size + x / scale];
+                    var a = (p >> 24) / 255.0;
+                    var under = Pixels[(y0 + y) * width + x0 + x];
+                    uint Mix(int shift) => (uint)Math.Round(((p >> shift) & 0xFF) * a + ((under >> shift) & 0xFF) * (1 - a));
+                    Pixels[(y0 + y) * width + x0 + x] = 0xFF000000 | Mix(16) << 16 | Mix(8) << 8 | Mix(0);
+                }
+            }
+        }
     }
 }
 
